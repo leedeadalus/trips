@@ -1,0 +1,6 @@
+{
+  "migrations-dir": "migrations",
+  "migrations-schema": "trips",
+  "schema": "trips",
+  "migration-file-language": "cjs"
+}
