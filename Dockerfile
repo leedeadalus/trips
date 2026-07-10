@@ -8,6 +8,12 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
+# Test stage: keeps devDependencies (vitest) and test sources so
+# `docker compose run --rm test` can run the suite in-container.
+FROM build AS test
+COPY tests ./tests
+CMD ["npm", "test"]
+
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production

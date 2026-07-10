@@ -103,6 +103,18 @@ Exposed tools: `list_trips`, `get_trip`, `create_trip`, `list_flights`, `create_
 
 ## Tests
 
+Locally (against the containerized Postgres on `localhost:5433`):
+
 ```bash
 npm test
 ```
+
+Or fully inside a container (no host Node/npx needed), connected to the `postgres`
+service over the shared `trips-net` network:
+
+```bash
+docker compose run --rm test
+```
+
+This builds the `test` target of the Dockerfile (same base image as `app`/`mcp`, plus
+`tests/` and dev dependencies) and runs `npm test` (`vitest run`) inside the container.

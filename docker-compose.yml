@@ -35,6 +35,24 @@ services:
       - trips-net
     # docker compose run --rm app node dist/cli.js <args>
 
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    image: trips-app:test
+    container_name: trips-test
+    profiles: ["test"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://trips:trips_dev_password@trips-postgres:5432/trips
+      PGSCHEMA: trips
+    networks:
+      - trips-net
+    # docker compose run --rm test
+
   mcp:
     build:
       context: .
@@ -52,6 +70,28 @@ services:
       PGSCHEMA: trips
     networks:
       - trips-net
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trips-app:latest
+    container_name: trips-migrate
+    entrypoint: ["npx", "node-pg-migrate"]
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://trips:trips_dev_password@trips-postgres:5432/trips
+      PGSCHEMA: trips
+    networks:
+      - trips-net
+    profiles:
+      - tools
+    # docker compose run --rm migrate           -> applies pending migrations (up)
+    # docker compose run --rm migrate down       -> rolls back the most recent migration
+    # docker compose run --rm migrate create foo -> scaffolds a new migration
 
 networks:
   trips-net:
