@@ -11,6 +11,51 @@ services:
       - "5433:5432"
     volumes:
       - trips_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trips -d trips"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - trips-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trips-app:latest
+    container_name: trips-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://trips:trips_dev_password@trips-postgres:5432/trips
+      PGSCHEMA: trips
+    networks:
+      - trips-net
+    # docker compose run --rm app node dist/cli.js <args>
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trips-app:latest
+    container_name: trips-mcp
+    command: ["node", "dist/mcp/server.js"]
+    stdin_open: true
+    tty: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://trips:trips_dev_password@trips-postgres:5432/trips
+      PGSCHEMA: trips
+    networks:
+      - trips-net
+
+networks:
+  trips-net:
+    name: trips-net
 
 volumes:
   trips_pgdata:
