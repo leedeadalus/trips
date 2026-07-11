@@ -22,6 +22,7 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
 COPY .node-pg-migraterc.json ./
+COPY scripts ./scripts
 
 # Default command runs the CLI; the mcp service in docker-compose overrides
 # the command to run the MCP stdio server instead. No ENTRYPOINT is set so
