@@ -151,6 +151,11 @@ export function renderFlightMap(options: FlightMapOptions): string {
   (function () {
     var FLIGHTS = ${flightsJson};
     var SKIPPED = ${JSON.stringify(skippedCount)};
+    // Exposed so updateFlights() can recompute route color for freshly
+    // fetched flights (e.g. after a date-range change) the same way the
+    // initial server-rendered payload did.
+    var STATUS_COLORS_BY_JS = ${JSON.stringify(STATUS_COLORS)};
+    function jsRouteColor(status) { return STATUS_COLORS_BY_JS[status] || '#5b8def'; }
     if (SKIPPED > 0 && window.console && console.warn) {
       console.warn('flight-map: skipped ' + SKIPPED + ' flight(s) with unresolved airport coordinates');
     }
@@ -170,43 +175,77 @@ export function renderFlightMap(options: FlightMapOptions): string {
       container.getMap = function () { return map; };
       container.getFlights = function () { return FLIGHTS; };
 
-      if (FLIGHTS.length === 0) {
-        emptyEl.style.display = 'block';
-        return;
-      }
+      var drawnLayers = [];
 
-      var markersByCode = {};
-      var bounds = [];
+      function draw(flights) {
+        // Clear anything drawn by a previous call (markers + route lines),
+        // leaving the base tile layer untouched.
+        drawnLayers.forEach(function (layer) { map.removeLayer(layer); });
+        drawnLayers = [];
 
-      FLIGHTS.forEach(function (f) {
-        [f.departure, f.arrival].forEach(function (airport) {
-          if (!markersByCode[airport.code]) {
-            var marker = L.circleMarker([airport.lat, airport.lon], {
-              radius: 5,
-              color: '#e6e8ec',
-              weight: 1,
-              fillColor: '#5b8def',
-              fillOpacity: 0.9,
-            }).addTo(map);
-            marker.bindTooltip(airport.code + ' — ' + airport.name);
-            markersByCode[airport.code] = marker;
-          }
-          bounds.push([airport.lat, airport.lon]);
+        if (!flights || flights.length === 0) {
+          emptyEl.style.display = 'block';
+          return;
+        }
+        emptyEl.style.display = 'none';
+
+        var markersByCode = {};
+        var bounds = [];
+
+        flights.forEach(function (f) {
+          [f.departure, f.arrival].forEach(function (airport) {
+            if (!markersByCode[airport.code]) {
+              var marker = L.circleMarker([airport.lat, airport.lon], {
+                radius: 5,
+                color: '#e6e8ec',
+                weight: 1,
+                fillColor: '#5b8def',
+                fillOpacity: 0.9,
+              }).addTo(map);
+              marker.bindTooltip(airport.code + ' — ' + airport.name);
+              markersByCode[airport.code] = marker;
+              drawnLayers.push(marker);
+            }
+            bounds.push([airport.lat, airport.lon]);
+          });
+
+          var line = L.polyline(
+            [[f.departure.lat, f.departure.lon], [f.arrival.lat, f.arrival.lon]],
+            { color: f.color, weight: 2, opacity: 0.75 }
+          ).addTo(map).bindTooltip(
+            (f.flightNumber ? f.flightNumber + ': ' : '') + f.departure.code + ' \\u2192 ' + f.arrival.code
+          );
+          drawnLayers.push(line);
         });
 
-        L.polyline(
-          [[f.departure.lat, f.departure.lon], [f.arrival.lat, f.arrival.lon]],
-          { color: f.color, weight: 2, opacity: 0.75 }
-        ).addTo(map).bindTooltip(
-          (f.flightNumber ? f.flightNumber + ': ' : '') + f.departure.code + ' \\u2192 ' + f.arrival.code
-        );
-      });
-
-      if (bounds.length === 1) {
-        map.setView(bounds[0], 6);
-      } else if (bounds.length > 1) {
-        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
+        if (bounds.length === 1) {
+          map.setView(bounds[0], 6);
+        } else if (bounds.length > 1) {
+          map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
+        }
       }
+
+      // Re-render this map in place with a new flight set (e.g. after the
+      // date range changes) without recreating the Leaflet instance or
+      // re-fetching the Leaflet script.
+      container.updateFlights = function (newFlights) {
+        FLIGHTS = (newFlights || [])
+          .filter(function (f) { return f.departure != null && f.arrival != null; })
+          .map(function (f) {
+            return {
+              id: f.id,
+              flightNumber: f.flightNumber || null,
+              status: f.status || null,
+              color: jsRouteColor(f.status),
+              departure: f.departure,
+              arrival: f.arrival,
+            };
+          });
+        container.getFlights = function () { return FLIGHTS; };
+        draw(FLIGHTS);
+      };
+
+      draw(FLIGHTS);
     }
 
     if (typeof L !== 'undefined') {

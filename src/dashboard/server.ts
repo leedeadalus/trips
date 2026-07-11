@@ -5,6 +5,8 @@ import {
   renderTrip,
   renderAllTrips,
   renderAllFlights,
+  renderMapView,
+  flightMapPointToMapFlight,
   type AllFlightsSortLink,
   type TripListSortLink,
 } from './render.js';
@@ -172,6 +174,50 @@ app.post('/trips/:id/flights', async (req, res, next) => {
     }
 
     res.json({ tripId: id, assignedCount: assigned.length, flights: assigned });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/map', async (req, res, next) => {
+  try {
+    const hasStart = typeof req.query.startDate === 'string' && req.query.startDate.length > 0;
+    const hasEnd = typeof req.query.endDate === 'string' && req.query.endDate.length > 0;
+    const opts: repo.ListFlightsForMapOptions =
+      hasStart && hasEnd
+        ? { startDate: req.query.startDate as string, endDate: req.query.endDate as string }
+        : {};
+
+    const { startDate, endDate } = repo.resolveMapDateRange(opts);
+    const flights = startDate > endDate ? [] : await repo.listFlightsForMap({ startDate, endDate });
+
+    res.type('html').send(renderMapView({ flights, startDate, endDate }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Backs the Map View screen's date-range-change re-fetch: returns the
+// flight set (already shaped for the map component) for an explicit
+// [startDate, endDate] window, without a full page reload.
+app.get('/api/map-flights', async (req, res, next) => {
+  try {
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+
+    if (!startDate || !endDate) {
+      res.status(400).json({ error: 'startDate and endDate query params are required' });
+      return;
+    }
+    if (startDate > endDate) {
+      // Reversed/invalid range: respond with an empty result rather than
+      // an error so the client can render an empty map gracefully.
+      res.json({ startDate, endDate, flights: [] });
+      return;
+    }
+
+    const points = await repo.listFlightsForMap({ startDate, endDate });
+    res.json({ startDate, endDate, flights: points.map(flightMapPointToMapFlight) });
   } catch (err) {
     next(err);
   }
