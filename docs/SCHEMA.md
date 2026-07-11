@@ -99,3 +99,23 @@ trip-detail flight picker).
 No migration was added/altered by this task, so existing trip/flight rows are
 untouched. Verified against the live containerized DB: `trips.trips` has 5
 rows, `trips.flights` has 20 rows, unchanged before/after this change.
+
+## Airport reference data (code -> city / coordinates)
+
+There is no `airports_reference` DB table in this repo. Airport reference
+data (IATA code, display name, city, lat/lon) lives entirely in the static
+TS module `src/airport-geo.ts` (`AIRPORT_LOCATIONS`), by deliberate design:
+airport code/city/coordinate mappings are static reference data, so a live
+DB table / migration / external API call would be unnecessary overhead for
+what map rendering and city lookups need.
+
+- **"What city is airport code X in?"** -- `getAirportCity(iataCode)` from
+  `src/airport-geo.ts`. Returns the city string (e.g. `"New York"`) or
+  `null` if the code isn't in the table.
+- **Full location (city, name, lat, lon)** -- `getAirportLocation(iataCode)`,
+  same module. Returns an `AirportLocation` (now including `city`) or
+  `null`.
+- Both lookups are case-insensitive on the IATA code.
+- Do **not** add a second airport dataset (e.g. a Postgres
+  `airports_reference` table) -- extend `AIRPORT_LOCATIONS` in
+  `airport-geo.ts` instead when new codes show up in flight data.
