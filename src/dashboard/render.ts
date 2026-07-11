@@ -68,7 +68,17 @@ function layout(title: string, body: string): string {
     justify-content: space-between;
   }
   header h1 { margin: 0; font-size: 1.25rem; }
-  header a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+  header a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.6rem 0.4rem;
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+  header nav { display: flex; gap: 0.25rem; align-items: center; }
   main { width: 100%; max-width: 960px; margin: 0 auto; padding: 1.5rem 2rem 3rem; overflow-x: hidden; }
   .table-wrap { overflow-x: auto; max-width: 100%; }
   table { width: 100%; border-collapse: collapse; }
@@ -77,6 +87,28 @@ function layout(title: string, body: string): string {
   tr:hover td { background: rgba(255,255,255,0.02); }
   a.row-link { color: var(--text); text-decoration: none; }
   a.row-link:hover { color: var(--accent); }
+  /* Expand tappable area of compact links (sort headers, pagination) to meet
+     the 44x44px touch-target guideline without inflating visual size. */
+  th a.row-link, .meta a.row-link {
+    position: relative;
+    display: inline-block;
+    padding: 0.35rem 0.2rem;
+  }
+  th a.row-link::before, .meta a.row-link::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+  .meta a.row-link {
+    padding: 0.5rem 0.6rem;
+    border-radius: 6px;
+  }
+  .meta a.row-link:hover { background: rgba(255,255,255,0.04); }
+  .meta > span:last-child { display: flex; align-items: center; gap: 0.25rem; }
   .card {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -112,6 +144,31 @@ function layout(title: string, body: string): string {
     th { font-size: 0.72rem; letter-spacing: 0.02em; }
     .col-secondary { display: none; }
     .cell-sub { display: block; }
+    /* Badge text was clipping (e.g. "Not Flo...") when squeezed against
+       neighboring columns on narrow screens — stop it from wrapping/shrinking
+       and let it size to its content instead. */
+    .badge { white-space: nowrap; flex: 0 0 auto; }
+    /* Flight-picker checkboxes were ~13x13px, far below the 44x44 minimum
+       touch target. Give the checkbox itself a larger box and pad the cell
+       so the whole hit area (not just the tiny visual square) is >=44px.
+       Audit found this affects both the phone tier and the 768px tablet
+       tier (flight-picker table isn't affected by the fixed-layout rule
+       above), so it lives at this shared breakpoint rather than only the
+       640px one below. */
+    td:has(> input.picker-checkbox) {
+      padding: 0.4rem;
+      text-align: center;
+    }
+    input.picker-checkbox {
+      width: 1.4rem;
+      height: 1.4rem;
+      min-width: 44px;
+      min-height: 44px;
+      margin: 0;
+      box-sizing: content-box;
+      padding: calc((44px - 1.4rem) / 2);
+      accent-color: var(--accent);
+    }
   }
 
   @media (max-width: 640px) {
@@ -119,8 +176,10 @@ function layout(title: string, body: string): string {
     header h1 { font-size: 1.05rem; }
     main { padding: 1rem 1rem 2rem; }
     body { font-size: 0.9rem; }
-    th, td { padding: 0.5rem 0.45rem; }
+    th, td { padding: 0.5rem 0.45rem; white-space: normal; vertical-align: top; }
     th { font-size: 0.68rem; }
+    .col-secondary { display: none; }
+    .cell-sub { display: block; }
   }
 
   @media (max-width: 420px) {
@@ -368,19 +427,22 @@ export function renderTrip(
   </div>
 
   <style>
-    .picker-tabs { display:flex; gap:0.5rem; margin-bottom:1rem; }
+    .picker-tabs { display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap: wrap; }
     .picker-tab {
       background: var(--panel); color: var(--muted); border: 1px solid var(--border);
       border-radius: 8px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem;
+      min-height: 44px;
     }
     .picker-tab.active { color: var(--text); border-color: var(--accent); }
     .text-input {
       background: #0f1115; color: var(--text); border: 1px solid var(--border);
       border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.9rem; width: 100%; max-width: 420px;
+      min-height: 44px; box-sizing: border-box;
     }
     .field-label { display:flex; flex-direction:column; gap:0.3rem; font-size:0.8rem; color: var(--muted); }
     .btn-primary, .btn-secondary {
       border: none; border-radius: 8px; padding: 0.55rem 1.1rem; font-size: 0.9rem; cursor: pointer;
+      min-height: 44px;
     }
     .btn-primary { background: var(--accent); color: #0b0d11; font-weight: 600; }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -391,12 +453,27 @@ export function renderTrip(
       color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem 0.5rem 0.25rem 0.7rem;
       font-size: 0.82rem;
     }
+    /* Remove (x) button was an icon-only ~15px target; give it an explicit
+       44x44 hit area (via padding, not visual size) so it's easy to tap
+       without enlarging the chip itself. */
     .chip button {
-      background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 0 0.15rem;
+      background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.95rem; line-height: 1;
+      padding: 0.55rem; margin: -0.55rem -0.15rem -0.55rem 0;
+      min-width: 44px; min-height: 44px;
+      display: inline-flex; align-items: center; justify-content: center;
     }
     .chip button:hover { color: #e04a4a; }
     .picker-row.already-in-trip { opacity: 0.55; }
     .picker-row.selected td { background: rgba(91,141,239,0.08); }
+    /* "Current trip" cell can hold either a wrapping trip-name link or a
+       fixed-width badge — align both consistently instead of letting the
+       badge float right while names wrap to a second line. */
+    #flight-picker-tbody td:last-child,
+    #range-preview-tbody td:last-child {
+      text-align: left;
+      vertical-align: top;
+      max-width: 9rem;
+    }
   </style>
 
   <script>
