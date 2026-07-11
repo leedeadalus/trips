@@ -227,7 +227,10 @@ app.get('/api/map-flights', async (req, res, next) => {
 
 app.get('/timeline', async (req, res, next) => {
   try {
-    const flights = await repo.listFlightsForTimeline();
+    const tripId = typeof req.query.tripId === 'string' ? Number(req.query.tripId) : undefined;
+    const flights = await repo.listFlightsForTimeline(
+      tripId !== undefined && !Number.isNaN(tripId) ? { tripId } : {}
+    );
     // pg returns timestamp columns as Date objects; deriveCityTimeline expects
     // ISO date strings (see TimelineFlightInput in city-timeline.ts), so
     // normalize here rather than changing that module's input contract.
