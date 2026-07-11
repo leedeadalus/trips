@@ -2,6 +2,7 @@ import type { Flight, FlightWithTrip, Trip, TripWithFlightCount, FlightMapPoint 
 import { getFormattedFlightDuration } from '../flight-duration.js';
 import { renderFlightMap, type MapFlight } from './flight-map.js';
 import { renderDateRangePicker } from './date-range-picker.js';
+import { renderColumnVisibilityControl, type ColumnDef } from './column-visibility.js';
 import type { CitySegment } from '../city-timeline.js';
 
 function escapeHtml(value: unknown): string {
@@ -267,6 +268,16 @@ export interface TripListPagination {
   nextHref: string | null;
 }
 
+// Distinct storage key/id-prefix for this view so persisted visibility
+// choices don't collide with the Flights list's own column-visibility control.
+const TRIPS_LIST_COLUMNS: ColumnDef[] = [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Trip' },
+  { key: 'start_date', label: 'Start' },
+  { key: 'end_date', label: 'End' },
+  { key: 'flight_count', label: 'Flights' },
+];
+
 export function renderAllTrips(
   trips: TripWithFlightCount[],
   sortLinks: TripListSortLink[],
@@ -276,11 +287,11 @@ export function renderAllTrips(
     ? trips
         .map(
           (t) => `<tr>
-            <td class="col-secondary">${t.id}</td>
-            <td><a class="row-link" href="/trips/${t.id}">${escapeHtml(t.name)}</a><span class="cell-sub">${escapeHtml(t.description ?? '')}</span></td>
-            <td>${formatDate(t.start_date)}</td>
-            <td class="col-secondary">${formatDate(t.end_date)}</td>
-            <td>${t.flight_count}</td>
+            <td class="col-secondary" data-column="id">${t.id}</td>
+            <td data-column="name"><a class="row-link" href="/trips/${t.id}">${escapeHtml(t.name)}</a><span class="cell-sub">${escapeHtml(t.description ?? '')}</span></td>
+            <td data-column="start_date">${formatDate(t.start_date)}</td>
+            <td class="col-secondary" data-column="end_date">${formatDate(t.end_date)}</td>
+            <td data-column="flight_count">${t.flight_count}</td>
           </tr>`
         )
         .join('\n')
@@ -288,7 +299,7 @@ export function renderAllTrips(
 
   const headerCell = (link: TripListSortLink) => {
     const arrow = link.active ? (link.direction === 'asc' ? ' ▲' : ' ▼') : '';
-    return `<th><a class="row-link" href="${link.href}">${escapeHtml(link.label)}${arrow}</a></th>`;
+    return `<th data-column="${link.column}"><a class="row-link" href="${link.href}">${escapeHtml(link.label)}${arrow}</a></th>`;
   };
 
   const thead = sortLinks.map(headerCell).join('\n        ');
@@ -306,13 +317,22 @@ export function renderAllTrips(
     </span>
   </div>`;
 
+  const columnVisibilityHtml = renderColumnVisibilityControl({
+    idPrefix: 'trips-list-columns',
+    storageKey: 'trips-list-columns',
+    columns: TRIPS_LIST_COLUMNS,
+  });
+
   const body = `
   <div class="card">
+    <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
+      ${columnVisibilityHtml}
+    </div>
     <div class="table-wrap">
     <table>
       <thead>
         <tr>
-        <th class="col-secondary">ID</th>
+        <th class="col-secondary" data-column="id">ID</th>
         ${thead}
         </tr>
       </thead>
@@ -693,6 +713,22 @@ export interface AllFlightsPagination {
   nextHref: string | null;
 }
 
+/**
+ * Column definitions for the All Flights table's column-visibility control.
+ * `key` must match the `data-column` attribute on this column's <th> and
+ * every row's corresponding <td> below.
+ */
+export const ALL_FLIGHTS_COLUMNS: ColumnDef[] = [
+  { key: 'date', label: 'Date' },
+  { key: 'flight', label: 'Flight' },
+  { key: 'route', label: 'Route' },
+  { key: 'airline', label: 'Airline' },
+  { key: 'duration', label: 'Duration' },
+  { key: 'distance', label: 'Distance' },
+  { key: 'status', label: 'Status' },
+  { key: 'trip', label: 'Trip' },
+];
+
 export function renderAllFlights(
   flights: Array<FlightWithTrip & { distance_km?: number | null }>,
   sortLinks: AllFlightsSortLink[],
@@ -702,18 +738,18 @@ export function renderAllFlights(
     ? flights
         .map(
           (f) => `<tr>
-            <td>${formatDate(f.departure_datetime)}</td>
-            <td>${escapeHtml(f.flight_number)}</td>
-            <td>${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${escapeHtml(f.airline ?? '—')} &middot; ${
+            <td data-column="date">${formatDate(f.departure_datetime)}</td>
+            <td data-column="flight">${escapeHtml(f.flight_number)}</td>
+            <td data-column="route">${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${escapeHtml(f.airline ?? '—')} &middot; ${
               f.trip_id !== null
                 ? escapeHtml(f.trip_name ?? `Trip ${f.trip_id}`)
                 : 'Unassigned'
             }</span></td>
-            <td class="col-secondary">${escapeHtml(f.airline ?? '—')}</td>
-            <td>${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
-            <td>${escapeHtml(formatDistance(f.distance_km))}</td>
-            <td>${statusBadge(f.status)}</td>
-            <td class="col-secondary">${
+            <td class="col-secondary" data-column="airline">${escapeHtml(f.airline ?? '—')}</td>
+            <td data-column="duration">${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
+            <td data-column="distance">${escapeHtml(formatDistance(f.distance_km))}</td>
+            <td data-column="status">${statusBadge(f.status)}</td>
+            <td class="col-secondary" data-column="trip">${
               f.trip_id !== null
                 ? `<a class="row-link" href="/trips/${f.trip_id}">${escapeHtml(f.trip_name ?? `Trip ${f.trip_id}`)}</a>`
                 : '<span class="empty">Unassigned</span>'
@@ -723,23 +759,23 @@ export function renderAllFlights(
         .join('\n')
     : `<tr><td colspan="8" class="empty">No flights yet.</td></tr>`;
 
-  const headerCell = (link: AllFlightsSortLink) => {
+  const headerCell = (link: AllFlightsSortLink, column: string) => {
     const arrow = link.active ? (link.direction === 'asc' ? ' ▲' : ' ▼') : '';
-    return `<th><a class="row-link" href="${link.href}">${escapeHtml(link.label)}${arrow}</a></th>`;
+    return `<th data-column="${column}"><a class="row-link" href="${link.href}">${escapeHtml(link.label)}${arrow}</a></th>`;
   };
 
   // Header cells must line up 1:1 with the <td> order in each row below:
   // Date, Flight, Route, Airline, Duration, Distance, Status, Trip.
   const byColumn = (column: string) => sortLinks.find((link) => link.column === column)!;
   const thead = [
-    headerCell(byColumn('departure_datetime')),
-    headerCell(byColumn('flight_number')),
-    headerCell(byColumn('departure_airport')),
-    '<th class="col-secondary">Airline</th>',
-    '<th>Duration</th>',
-    '<th>Distance</th>',
-    headerCell(byColumn('status')),
-    '<th class="col-secondary">Trip</th>',
+    headerCell(byColumn('departure_datetime'), 'date'),
+    headerCell(byColumn('flight_number'), 'flight'),
+    headerCell(byColumn('departure_airport'), 'route'),
+    '<th class="col-secondary" data-column="airline">Airline</th>',
+    '<th data-column="duration">Duration</th>',
+    '<th data-column="distance">Distance</th>',
+    headerCell(byColumn('status'), 'status'),
+    '<th class="col-secondary" data-column="trip">Trip</th>',
   ].join('\n        ');
 
   const rangeStart = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
@@ -755,8 +791,17 @@ export function renderAllFlights(
     </span>
   </div>`;
 
+  const columnVisibilityHtml = renderColumnVisibilityControl({
+    idPrefix: 'flights-columns',
+    storageKey: 'flights-list-columns',
+    columns: ALL_FLIGHTS_COLUMNS,
+  });
+
   const body = `
   <div class="card">
+    <div style="display:flex; justify-content:flex-end; margin-bottom:0.5rem;">
+      ${columnVisibilityHtml}
+    </div>
     <div class="table-wrap">
     <table>
       <thead>

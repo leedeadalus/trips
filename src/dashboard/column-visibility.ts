@@ -241,7 +241,16 @@ export function renderColumnVisibilityControl(options: ColumnVisibilityControlOp
     }
 
     var visibility = loadVisibility();
-    applyVisibility(visibility);
+    // The control markup is embedded above the table it controls, so at the
+    // time this inline script runs (synchronously, during parsing) the table's
+    // [data-column] cells further down the page haven't been parsed into the
+    // DOM yet -- applying visibility right away would silently no-op on them.
+    // Defer the initial application until the DOM is fully parsed.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { applyVisibility(visibility); });
+    } else {
+      applyVisibility(visibility);
+    }
 
     toggleBtn.addEventListener('click', function (e) {
       e.stopPropagation();

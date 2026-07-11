@@ -121,6 +121,22 @@ describe('localStorage persistence round-trip', () => {
 });
 
 describe('renderColumnVisibilityControl', () => {
+  it('defers the initial applyVisibility() call until DOMContentLoaded when the document is still parsing', () => {
+    // Regression: the control is typically embedded in the page *above* the
+    // table it controls, so at the time this inline script executes
+    // (synchronously, mid-parse), the table's [data-column] cells further
+    // down the page don't exist in the DOM yet. Applying visibility
+    // immediately would silently no-op on them, so hidden columns wouldn't
+    // actually be hidden on first paint after a real page load/reload.
+    const html = renderColumnVisibilityControl({
+      idPrefix: 'flights-columns',
+      storageKey: 'flights-list-columns',
+      columns: COLUMNS,
+    });
+    expect(html).toContain("document.readyState === 'loading'");
+    expect(html).toContain("addEventListener('DOMContentLoaded'");
+  });
+
   it('renders a checkbox per column and a distinct storage key per table', () => {
     const html = renderColumnVisibilityControl({
       idPrefix: 'trips-columns',
