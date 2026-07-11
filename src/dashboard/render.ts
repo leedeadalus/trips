@@ -201,6 +201,15 @@ function layout(title: string, body: string): string {
     th, td { padding: 0.45rem 0.35rem; }
     .card { padding: 0.85rem 0.9rem; }
   }
+
+  /* Large/desktop screens: the 960px max-width above was a mobile-first
+     leftover that clamped tables well below the available viewport on
+     wide displays. Let the container (and its tables) expand to fill the
+     viewport on large screens while leaving all mobile/tablet breakpoints
+     above untouched. */
+  @media (min-width: 1024px) {
+    main { max-width: none; }
+  }
 </style>
 </head>
 <body>
