@@ -11,6 +11,9 @@ import {
   assignFlightsInDateRangeToTrip,
   listFlightsInDateRange,
   getTrip,
+  listFlightsForMap,
+  resolveMapDateRange,
+  DEFAULT_MAP_RANGE_DAYS,
 } from '../src/repository.js';
 import { pool } from '../src/db.js';
 
@@ -141,6 +144,83 @@ describe('trips and flights', () => {
   });
 });
 
+describe('listFlightsForMap / resolveMapDateRange', () => {
+  it('defaults to a 90-day window ending "today" when no dates are passed', () => {
+    const now = new Date('2027-06-30T12:00:00Z');
+    const { startDate, endDate } = resolveMapDateRange({}, now);
+    expect(endDate).toBe('2027-06-30');
+    expect(startDate).toBe('2027-04-01'); // 90 days before 2027-06-30
+    expect(DEFAULT_MAP_RANGE_DAYS).toBe(90);
+  });
+
+  it('uses explicit startDate/endDate when both are provided, ignoring "now"', () => {
+    const now = new Date('2027-06-30T12:00:00Z');
+    const { startDate, endDate } = resolveMapDateRange(
+      { startDate: '2020-01-01', endDate: '2020-01-31' },
+      now
+    );
+    expect(startDate).toBe('2020-01-01');
+    expect(endDate).toBe('2020-01-31');
+  });
+
+  it('returns only flights within the given range, with resolved coordinates', async () => {
+    const inRange1 = await createFlight({
+      flightNumber: 'MAP100',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: '2028-03-02T10:00:00Z',
+    });
+    const inRange2 = await createFlight({
+      flightNumber: 'MAP101',
+      departureAirport: 'LAX',
+      arrivalAirport: 'SFO',
+      departureDatetime: '2028-03-04T10:00:00Z',
+    });
+    const outOfRange = await createFlight({
+      flightNumber: 'MAP102',
+      departureAirport: 'ORD',
+      arrivalAirport: 'DEN',
+      departureDatetime: '2028-04-01T10:00:00Z',
+    });
+
+    const points = await listFlightsForMap({ startDate: '2028-03-01', endDate: '2028-03-05' });
+    const ids = points.map((p) => p.id);
+    expect(ids).toContain(inRange1.id);
+    expect(ids).toContain(inRange2.id);
+    expect(ids).not.toContain(outOfRange.id);
+
+    const jfkPoint = points.find((p) => p.id === inRange1.id)!;
+    expect(jfkPoint.departure).toEqual({ code: 'JFK', name: expect.any(String), lat: expect.any(Number), lon: expect.any(Number) });
+    expect(jfkPoint.arrival?.code).toBe('LAX');
+
+    await deleteFlight(inRange1.id);
+    await deleteFlight(inRange2.id);
+    await deleteFlight(outOfRange.id);
+  });
+
+  it('returns an empty array (not an error) when no flights fall in the range', async () => {
+    const points = await listFlightsForMap({ startDate: '1999-01-01', endDate: '1999-01-02' });
+    expect(points).toEqual([]);
+  });
+
+  it('defaults correctly end-to-end: a flight departing "yesterday" is included with no dates passed', async () => {
+    const yesterday = new Date(Date.now() - 86400000).toISOString();
+    const recent = await createFlight({
+      flightNumber: 'MAPDEF1',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: yesterday,
+    });
+
+    const points = await listFlightsForMap();
+    expect(points.map((p) => p.id)).toContain(recent.id);
+
+    await deleteFlight(recent.id);
+  });
+});
+
 afterAll(async () => {
   await pool.end();
+
 });
+

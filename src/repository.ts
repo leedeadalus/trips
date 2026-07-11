@@ -1,5 +1,6 @@
 import { withClient } from './db.js';
 import { config } from './config.js';
+import { getAirportLocation } from './airport-geo.js';
 import type {
   CreateFlightInputT,
   CreateTripInputT,
@@ -304,6 +305,104 @@ export async function listFlightsInDateRange(startDate: string, endDate: string)
       [startDate, endDate]
     );
     return rows;
+  });
+}
+
+export interface FlightMapPoint {
+  id: number;
+  flightNumber: string;
+  departureAirport: string;
+  arrivalAirport: string;
+  departureDatetime: string;
+  arrivalDatetime: string | null;
+  status: string;
+  tripId: number | null;
+  departure: { code: string; name: string; lat: number; lon: number } | null;
+  arrival: { code: string; name: string; lat: number; lon: number } | null;
+}
+
+/**
+ * Default lookback window (in days) for `listFlightsForMap()` when the
+ * caller passes no explicit date range -- "last 90 days" per the Map View
+ * spec (t_a04319c7).
+ */
+export const DEFAULT_MAP_RANGE_DAYS = 90;
+
+export interface ListFlightsForMapOptions {
+  /** Inclusive start of the range, as a YYYY-MM-DD (or any Date-parseable) string. Defaults to `DEFAULT_MAP_RANGE_DAYS` days before today when omitted. */
+  startDate?: string;
+  /** Inclusive end of the range, as a YYYY-MM-DD (or any Date-parseable) string. Defaults to today when omitted. */
+  endDate?: string;
+}
+
+/**
+ * Resolves the effective [startDate, endDate] window for map queries:
+ * both provided -> used as-is; either/both omitted -> defaults to the
+ * last `DEFAULT_MAP_RANGE_DAYS` days ending today (UTC calendar days).
+ * Exported standalone so the default-window logic is independently
+ * unit-testable without hitting the database.
+ */
+export function resolveMapDateRange(
+  opts: ListFlightsForMapOptions = {},
+  now: Date = new Date()
+): { startDate: string; endDate: string } {
+  const toDateOnly = (d: Date) => d.toISOString().slice(0, 10);
+
+  if (opts.startDate && opts.endDate) {
+    return { startDate: opts.startDate, endDate: opts.endDate };
+  }
+
+  const end = opts.endDate ?? toDateOnly(now);
+  const startFromEnd = new Date(end);
+  startFromEnd.setUTCDate(startFromEnd.getUTCDate() - DEFAULT_MAP_RANGE_DAYS);
+  const start = opts.startDate ?? toDateOnly(startFromEnd);
+
+  return { startDate: start, endDate: end };
+}
+
+/**
+ * Retrieves all flights whose departure date falls within [startDate,
+ * endDate] (inclusive, by calendar day), shaped for map rendering: each
+ * result carries the flight identifiers/dates plus resolved
+ * origin/destination coordinates (via `airport-geo.ts`'s static IATA
+ * lookup) so the map layer can plot routes without a second lookup pass.
+ *
+ * Defaults to the last `DEFAULT_MAP_RANGE_DAYS` days (ending today) when
+ * no startDate/endDate are passed -- see `resolveMapDateRange()`.
+ *
+ * A flight whose airport code has no known coordinate (see
+ * `airport-geo.ts`) is still included in the result with `departure`/
+ * `arrival` set to `null` for that leg, rather than being silently
+ * dropped -- callers doing map rendering should skip null-coordinate
+ * flights defensively, but the caller decides that, not this function.
+ */
+export async function listFlightsForMap(opts: ListFlightsForMapOptions = {}): Promise<FlightMapPoint[]> {
+  const { startDate, endDate } = resolveMapDateRange(opts);
+
+  return withClient(async (c) => {
+    const { rows } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights
+       WHERE departure_datetime::date BETWEEN $1::date AND $2::date
+       ORDER BY departure_datetime`,
+      [startDate, endDate]
+    );
+
+    return rows.map((f) => {
+      const departure = getAirportLocation(f.departure_airport);
+      const arrival = getAirportLocation(f.arrival_airport);
+      return {
+        id: f.id,
+        flightNumber: f.flight_number,
+        departureAirport: f.departure_airport,
+        arrivalAirport: f.arrival_airport,
+        departureDatetime: f.departure_datetime,
+        arrivalDatetime: f.arrival_datetime,
+        status: f.status,
+        tripId: f.trip_id,
+        departure,
+        arrival,
+      };
+    });
   });
 }
 
