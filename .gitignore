@@ -2,3 +2,6 @@ node_modules/
 dist/
 .env
 *.log
+
+# Isolated git worktrees for concurrent workers (see WORKTREES.md)
+.worktrees/
