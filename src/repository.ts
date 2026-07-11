@@ -1,6 +1,7 @@
-import { withClient } from './db.js';
+import { withClient, withTransaction } from './db.js';
 import { config } from './config.js';
 import { getAirportLocation } from './airport-geo.js';
+import type { PoolClient } from 'pg';
 import type {
   CreateFlightInputT,
   CreateTripInputT,
@@ -36,15 +37,55 @@ export interface Flight {
   notes: string | null;
 }
 
-export async function createTrip(input: CreateTripInputT): Promise<Trip> {
-  return withClient(async (c) => {
+export interface ActorContext {
+  type: 'user' | 'mcp';
+  idOrContext?: string;
+}
+
+async function recordAudit(
+  client: PoolClient,
+  params: {
+    tableName: string;
+    recordId: number;
+    action: 'insert' | 'update' | 'delete';
+    actor: ActorContext;
+    oldValues?: unknown;
+    newValues?: unknown;
+  }
+): Promise<void> {
+  await client.query(
+    `INSERT INTO ${SCHEMA}.audit_log
+      (table_name, record_id, action, actor_type, actor_id_or_context, old_values, new_values)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      params.tableName,
+      params.recordId,
+      params.action,
+      params.actor.type,
+      params.actor.idOrContext ?? null,
+      params.oldValues !== undefined ? JSON.stringify(params.oldValues) : null,
+      params.newValues !== undefined ? JSON.stringify(params.newValues) : null,
+    ]
+  );
+}
+
+export async function createTrip(input: CreateTripInputT, actor: ActorContext): Promise<Trip> {
+  return withTransaction(async (c) => {
     const { rows } = await c.query<Trip>(
       `INSERT INTO ${SCHEMA}.trips (name, description, start_date, end_date)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
       [input.name, input.description ?? null, input.startDate ?? null, input.endDate ?? null]
     );
-    return rows[0];
+    const trip = rows[0];
+    await recordAudit(c, {
+      tableName: 'trips',
+      recordId: trip.id,
+      action: 'insert',
+      actor,
+      newValues: trip,
+    });
+    return trip;
   });
 }
 
@@ -73,12 +114,6 @@ const TRIPS_SORT_COLUMNS: Record<string, string> = {
   flight_count: 'flight_count',
 };
 
-/**
- * All trips with an efficient per-trip flight count, via a single LEFT JOIN +
- * GROUP BY (uses the flights.trip_id index — no N+1 queries). Trips with zero
- * flights are still included with flight_count = 0. Supports sorting and
- * pagination consistent with listAllFlights().
- */
 export async function listTripsWithFlightCounts(
   opts: ListTripsWithFlightCountsOptions = {}
 ): Promise<{ trips: TripWithFlightCount[]; total: number; page: number; pageSize: number }> {
@@ -119,8 +154,11 @@ export async function getTrip(id: number): Promise<(Trip & { flights: Flight[] }
   });
 }
 
-export async function createFlight(input: Omit<CreateFlightInputT, 'status'> & { status?: string }): Promise<Flight> {
-  return withClient(async (c) => {
+export async function createFlight(
+  input: Omit<CreateFlightInputT, 'status'> & { status?: string },
+  actor: ActorContext
+): Promise<Flight> {
+  return withTransaction(async (c) => {
     const { rows } = await c.query<Flight>(
       `INSERT INTO ${SCHEMA}.flights
         (trip_id, flight_number, departure_airport, arrival_airport, departure_datetime,
@@ -143,7 +181,15 @@ export async function createFlight(input: Omit<CreateFlightInputT, 'status'> & {
         input.notes ?? null,
       ]
     );
-    return rows[0];
+    const flight = rows[0];
+    await recordAudit(c, {
+      tableName: 'flights',
+      recordId: flight.id,
+      action: 'insert',
+      actor,
+      newValues: flight,
+    });
+    return flight;
   });
 }
 
@@ -216,7 +262,7 @@ export async function listAllFlights(
 
 /**
  * All flights (no pagination), with trip name joined in, for the trip-detail
- * flight-selection picker — the picker needs the full universe of flights to
+ * flight-selection picker -- the picker needs the full universe of flights to
  * search/filter client-side and to know which trip (if any) each flight is
  * currently attached to.
  */
@@ -239,45 +285,92 @@ export async function getFlight(id: number): Promise<Flight | null> {
   });
 }
 
-export async function assignFlightToTrip(flightId: number, tripId: number | null): Promise<Flight> {
-  return withClient(async (c) => {
+export async function assignFlightToTrip(
+  flightId: number,
+  tripId: number | null,
+  actor: ActorContext
+): Promise<Flight> {
+  return withTransaction(async (c) => {
+    const { rows: before } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights WHERE id = $1`,
+      [flightId]
+    );
+    if (before.length === 0) throw new Error(`Flight ${flightId} not found`);
+
     const { rows } = await c.query<Flight>(
       `UPDATE ${SCHEMA}.flights SET trip_id = $2 WHERE id = $1 RETURNING *`,
       [flightId, tripId]
     );
     if (rows.length === 0) throw new Error(`Flight ${flightId} not found`);
-    return rows[0];
+    const flight = rows[0];
+    await recordAudit(c, {
+      tableName: 'flights',
+      recordId: flight.id,
+      action: 'update',
+      actor,
+      oldValues: before[0],
+      newValues: flight,
+    });
+    return flight;
   });
 }
 
 /**
  * Bulk-assign an explicit set of flight ids to a trip (individual-selection
  * mode in the trip-detail picker). Any flight id not found is silently
- * skipped (RETURNING only reflects matched rows) — caller can diff
+ * skipped (RETURNING only reflects matched rows) -- caller can diff
  * `flightIds.length` vs the returned rows to detect that if needed.
  */
-export async function assignFlightsToTrip(flightIds: number[], tripId: number | null): Promise<Flight[]> {
+export async function assignFlightsToTrip(
+  flightIds: number[],
+  tripId: number | null,
+  actor: ActorContext
+): Promise<Flight[]> {
   if (flightIds.length === 0) return [];
-  return withClient(async (c) => {
+  return withTransaction(async (c) => {
+    const { rows: before } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights WHERE id = ANY($1::int[])`,
+      [flightIds]
+    );
+    const beforeById = new Map(before.map((f) => [f.id, f]));
+
     const { rows } = await c.query<Flight>(
       `UPDATE ${SCHEMA}.flights SET trip_id = $1 WHERE id = ANY($2::int[]) RETURNING *`,
       [tripId, flightIds]
     );
+
+    for (const flight of rows) {
+      await recordAudit(c, {
+        tableName: 'flights',
+        recordId: flight.id,
+        action: 'update',
+        actor,
+        oldValues: beforeById.get(flight.id),
+        newValues: flight,
+      });
+    }
     return rows;
   });
 }
 
 /**
  * Assign every flight whose departure_datetime falls within [startDate,
- * endDate] (inclusive, by calendar day) to a trip — date-range selection
+ * endDate] (inclusive, by calendar day) to a trip -- date-range selection
  * mode in the trip-detail picker. Returns the flights that were assigned.
  */
 export async function assignFlightsInDateRangeToTrip(
   startDate: string,
   endDate: string,
-  tripId: number | null
+  tripId: number | null,
+  actor: ActorContext
 ): Promise<Flight[]> {
-  return withClient(async (c) => {
+  return withTransaction(async (c) => {
+    const { rows: before } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights WHERE departure_datetime::date BETWEEN $1::date AND $2::date`,
+      [startDate, endDate]
+    );
+    const beforeById = new Map(before.map((f) => [f.id, f]));
+
     const { rows } = await c.query<Flight>(
       `UPDATE ${SCHEMA}.flights
        SET trip_id = $3
@@ -285,13 +378,24 @@ export async function assignFlightsInDateRangeToTrip(
        RETURNING *`,
       [startDate, endDate, tripId]
     );
+
+    for (const flight of rows) {
+      await recordAudit(c, {
+        tableName: 'flights',
+        recordId: flight.id,
+        action: 'update',
+        actor,
+        oldValues: beforeById.get(flight.id),
+        newValues: flight,
+      });
+    }
     return rows;
   });
 }
 
 /**
  * Preview which flights fall within a date range, without mutating
- * anything — used by the trip-detail picker to show the user what a
+ * anything -- used by the trip-detail picker to show the user what a
  * date-range selection would include before they confirm/save.
  */
 export async function listFlightsInDateRange(startDate: string, endDate: string): Promise<FlightWithTrip[]> {
@@ -406,30 +510,73 @@ export async function listFlightsForMap(opts: ListFlightsForMapOptions = {}): Pr
   });
 }
 
-export async function markFlightNotFlown(flightId: number): Promise<Flight> {
-  return withClient(async (c) => {
+export async function markFlightNotFlown(flightId: number, actor: ActorContext): Promise<Flight> {
+  return withTransaction(async (c) => {
+    const { rows: before } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights WHERE id = $1`,
+      [flightId]
+    );
+    if (before.length === 0) throw new Error(`Flight ${flightId} not found`);
+
     const { rows } = await c.query<Flight>(
       `UPDATE ${SCHEMA}.flights SET status = 'not_flown' WHERE id = $1 RETURNING *`,
       [flightId]
     );
     if (rows.length === 0) throw new Error(`Flight ${flightId} not found`);
-    return rows[0];
+    const flight = rows[0];
+    await recordAudit(c, {
+      tableName: 'flights',
+      recordId: flight.id,
+      action: 'update',
+      actor,
+      oldValues: before[0],
+      newValues: flight,
+    });
+    return flight;
   });
 }
 
-export async function markFlightFlown(flightId: number): Promise<Flight> {
-  return withClient(async (c) => {
+export async function markFlightFlown(flightId: number, actor: ActorContext): Promise<Flight> {
+  return withTransaction(async (c) => {
+    const { rows: before } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights WHERE id = $1`,
+      [flightId]
+    );
+    if (before.length === 0) throw new Error(`Flight ${flightId} not found`);
+
     const { rows } = await c.query<Flight>(
       `UPDATE ${SCHEMA}.flights SET status = 'completed' WHERE id = $1 RETURNING *`,
       [flightId]
     );
     if (rows.length === 0) throw new Error(`Flight ${flightId} not found`);
-    return rows[0];
+    const flight = rows[0];
+    await recordAudit(c, {
+      tableName: 'flights',
+      recordId: flight.id,
+      action: 'update',
+      actor,
+      oldValues: before[0],
+      newValues: flight,
+    });
+    return flight;
   });
 }
 
-export async function deleteFlight(flightId: number): Promise<void> {
-  return withClient(async (c) => {
+export async function deleteFlight(flightId: number, actor: ActorContext): Promise<void> {
+  return withTransaction(async (c) => {
+    const { rows: before } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights WHERE id = $1`,
+      [flightId]
+    );
+    if (before.length === 0) return;
+
     await c.query(`DELETE FROM ${SCHEMA}.flights WHERE id = $1`, [flightId]);
+    await recordAudit(c, {
+      tableName: 'flights',
+      recordId: flightId,
+      action: 'delete',
+      actor,
+      oldValues: before[0],
+    });
   });
 }

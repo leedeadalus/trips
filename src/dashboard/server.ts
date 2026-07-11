@@ -165,9 +165,9 @@ app.post('/trips/:id/flights', async (req, res, next) => {
         res.status(400).json({ error: 'flightIds must be a non-empty array of integers' });
         return;
       }
-      assigned = await repo.assignFlightsToTrip(flightIds, id);
+      assigned = await repo.assignFlightsToTrip(flightIds, id, { type: 'user', idOrContext: 'dashboard' });
     } else if (typeof body.startDate === 'string' && typeof body.endDate === 'string') {
-      assigned = await repo.assignFlightsInDateRangeToTrip(body.startDate, body.endDate, id);
+      assigned = await repo.assignFlightsInDateRangeToTrip(body.startDate, body.endDate, id, { type: 'user', idOrContext: 'dashboard' });
     } else {
       res.status(400).json({ error: 'Provide flightIds (array) or startDate/endDate (strings)' });
       return;
