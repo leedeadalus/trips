@@ -118,7 +118,8 @@ app.get('/flights', async (req, res, next) => {
       nextHref: result.page < totalPages ? buildHref(sort, order, result.page + 1) : null,
     };
 
-    res.type('html').send(renderAllFlights(result.flights, sortLinks, pagination));
+    const flightsWithDistance = await repo.attachFlightDistances(result.flights);
+    res.type('html').send(renderAllFlights(flightsWithDistance, sortLinks, pagination));
   } catch (err) {
     next(err);
   }
@@ -137,7 +138,8 @@ app.get('/trips/:id', async (req, res, next) => {
       return;
     }
     const allFlights = await repo.listAllFlightsForPicker();
-    res.type('html').send(renderTrip(trip, allFlights));
+    const tripWithDistances = { ...trip, flights: await repo.attachFlightDistances(trip.flights) };
+    res.type('html').send(renderTrip(tripWithDistances, allFlights));
   } catch (err) {
     next(err);
   }

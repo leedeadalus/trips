@@ -15,6 +15,7 @@ import {
   resolveMapDateRange,
   DEFAULT_MAP_RANGE_DAYS,
   getFlightDistanceKm,
+  attachFlightDistances,
   listFlightsForTimeline,
 } from '../src/repository.js';
 import { pool } from '../src/db.js';
@@ -430,6 +431,37 @@ describe('flight distance calculation (haversine via airports_reference)', () =>
   it('returns null (not an error) when both airport codes are unknown', async () => {
     const distance = await getFlightDistanceKm('QQQ', 'WWW');
     expect(distance).toBeNull();
+  });
+});
+
+describe('attachFlightDistances (dashboard/MCP display helper)', () => {
+  it('attaches a computed distance_km to a flight with known airports', async () => {
+    const flights = [
+      { departure_airport: 'JFK', arrival_airport: 'LAX' },
+    ];
+    const withDistances = await attachFlightDistances(flights);
+    expect(withDistances).toHaveLength(1);
+    expect(withDistances[0].distance_km).not.toBeNull();
+    expect(withDistances[0].distance_km).toBeGreaterThan(3900);
+    expect(withDistances[0].distance_km).toBeLessThan(4050);
+  });
+
+  it('attaches distance_km: null (not a throw) for a flight with an unmapped airport', async () => {
+    const flights = [
+      { departure_airport: 'JFK', arrival_airport: 'ZZZ' },
+    ];
+    const withDistances = await attachFlightDistances(flights);
+    expect(withDistances).toHaveLength(1);
+    expect(withDistances[0].distance_km).toBeNull();
+  });
+
+  it('preserves the original flight fields alongside distance_km', async () => {
+    const flights = [
+      { id: 42, departure_airport: 'JFK', arrival_airport: 'LAX', flight_number: 'AA1' },
+    ];
+    const withDistances = await attachFlightDistances(flights);
+    expect(withDistances[0].id).toBe(42);
+    expect(withDistances[0].flight_number).toBe('AA1');
   });
 });
 

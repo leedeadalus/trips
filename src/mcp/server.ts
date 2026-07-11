@@ -11,6 +11,13 @@ function withDuration<T extends { departure_datetime: string; arrival_datetime: 
   return { ...flight, duration: getFormattedFlightDuration(flight) };
 }
 
+async function withDistance<
+  T extends { departure_airport: string; arrival_airport: string }
+>(flight: T): Promise<T & { distance_km: number | null }> {
+  const distance_km = await repo.getFlightDistanceKm(flight.departure_airport, flight.arrival_airport);
+  return { ...flight, distance_km };
+}
+
 const server = new McpServer({ name: 'trips-flights-mcp', version: '0.1.0' });
 
 server.tool(
@@ -28,7 +35,9 @@ server.tool(
   { tripId: z.number().int() },
   async ({ tripId }) => {
     const trip = await repo.getTrip(tripId);
-    const result = trip ? { ...trip, flights: trip.flights.map(withDuration) } : trip;
+    const result = trip
+      ? { ...trip, flights: await Promise.all(trip.flights.map(withDuration).map(withDistance)) }
+      : trip;
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -56,7 +65,14 @@ server.tool(
   },
   async (input) => ({
     content: [
-      { type: 'text', text: JSON.stringify((await repo.listFlights(input)).map(withDuration), null, 2) },
+      {
+        type: 'text',
+        text: JSON.stringify(
+          await Promise.all((await repo.listFlights(input)).map(withDuration).map(withDistance)),
+          null,
+          2
+        ),
+      },
     ],
   })
 );

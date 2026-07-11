@@ -18,6 +18,17 @@ function makeSortLinks(activeColumn: string): AllFlightsSortLink[] {
   }));
 }
 
+function makePagination() {
+  return {
+    page: 1,
+    pageSize: 25,
+    total: 1,
+    totalPages: 1,
+    prevHref: null,
+    nextHref: null,
+  };
+}
+
 describe('renderAllFlights', () => {
   it('renders header cells in the same left-to-right order as the row data cells', () => {
     const flight: FlightWithTrip = {
@@ -33,25 +44,14 @@ describe('renderAllFlights', () => {
       trip_name: null,
     } as unknown as FlightWithTrip;
 
-    const html = renderAllFlights(
-      [flight],
-      makeSortLinks('departure_datetime'),
-      {
-        page: 1,
-        pageSize: 25,
-        total: 1,
-        totalPages: 1,
-        prevHref: null,
-        nextHref: null,
-      }
-    );
+    const html = renderAllFlights([flight], makeSortLinks('departure_datetime'), makePagination());
 
     // Header labels must appear in the same order as the <td> data below:
-    // Date, Flight, Route, Airline, Duration, Status, Trip.
+    // Date, Flight, Route, Airline, Duration, Distance, Status, Trip.
     const theadStart = html.indexOf('<thead>');
     const theadEnd = html.indexOf('</thead>');
     const theadHtml = html.slice(theadStart, theadEnd);
-    const headerOrder = ['Date', 'Flight', 'Route', 'Airline', 'Duration', 'Status', 'Trip'];
+    const headerOrder = ['Date', 'Flight', 'Route', 'Airline', 'Duration', 'Distance', 'Status', 'Trip'];
     const headerIndexes = headerOrder.map((label) => theadHtml.indexOf(`>${label}`));
     headerIndexes.forEach((idx) => expect(idx).toBeGreaterThan(-1));
     for (let i = 1; i < headerIndexes.length; i++) {
@@ -72,5 +72,46 @@ describe('renderAllFlights', () => {
     expect(statusBadgeIdx).toBeGreaterThan(-1);
     expect(durationTextIdx).toBeLessThan(statusBadgeIdx);
     expect(durationHeaderIdx).toBeLessThan(statusHeaderIdx);
+  });
+
+  it('renders a computed distance in km when distance_km is set', () => {
+    const flight = {
+      id: 1,
+      flight_number: 'AA100',
+      departure_airport: 'JFK',
+      arrival_airport: 'LAX',
+      departure_datetime: '2024-01-01T10:00:00Z',
+      arrival_datetime: '2024-01-01T13:00:00Z',
+      airline: 'American',
+      status: 'confirmed',
+      trip_id: null,
+      trip_name: null,
+      distance_km: 3983,
+    } as unknown as FlightWithTrip & { distance_km: number };
+
+    const html = renderAllFlights([flight], makeSortLinks('departure_datetime'), makePagination());
+
+    expect(html).toContain('3,983 km');
+    expect(html).not.toContain('Distance unknown');
+  });
+
+  it('renders "Distance unknown" gracefully when distance_km is null (unmapped airport), with no crash', () => {
+    const flight = {
+      id: 1,
+      flight_number: 'ZZ999',
+      departure_airport: 'JFK',
+      arrival_airport: 'ZZZ',
+      departure_datetime: '2024-01-01T10:00:00Z',
+      arrival_datetime: '2024-01-01T13:00:00Z',
+      airline: 'Unknown Air',
+      status: 'confirmed',
+      trip_id: null,
+      trip_name: null,
+      distance_km: null,
+    } as unknown as FlightWithTrip & { distance_km: null };
+
+    const html = renderAllFlights([flight], makeSortLinks('departure_datetime'), makePagination());
+
+    expect(html).toContain('Distance unknown');
   });
 });

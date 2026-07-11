@@ -563,6 +563,25 @@ export async function getFlightDistanceKm(
   return haversineDistanceKm(from, to);
 }
 
+/**
+ * Attaches a `distance_km` field (see `getFlightDistanceKm()`) to each
+ * flight in the list, resolving all lookups in parallel. Placed alongside
+ * `getFlightDistanceKm()` so display-layer callers (dashboard/MCP,
+ * mirroring how `getFormattedFlightDuration()` is applied per-flight in
+ * those same callers) have a single batch helper instead of re-deriving
+ * the per-flight Promise.all pattern at each call site.
+ */
+export async function attachFlightDistances<
+  T extends { departure_airport: string; arrival_airport: string }
+>(flights: T[]): Promise<Array<T & { distance_km: number | null }>> {
+  return Promise.all(
+    flights.map(async (f) => ({
+      ...f,
+      distance_km: await getFlightDistanceKm(f.departure_airport, f.arrival_airport),
+    }))
+  );
+}
+
 export async function listFlightsForTimeline(filter: ListFlightsFilterT = {}): Promise<Flight[]> {
   return withClient(async (c) => {
     const clauses: string[] = [];

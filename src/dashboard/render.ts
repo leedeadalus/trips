@@ -40,6 +40,16 @@ function statusBadge(status: string): string {
   return `<span class="badge badge-${escapeHtml(status)}">${escapeHtml(label)}</span>`;
 }
 
+/**
+ * Formats a great-circle distance (km) for display, mirroring how
+ * `getFormattedFlightDuration()` signals "unknown" via `null` rather than
+ * an error string -- see `repository.ts#getFlightDistanceKm()`.
+ */
+function formatDistance(distanceKm: number | null | undefined): string {
+  if (distanceKm === null || distanceKm === undefined) return 'Distance unknown';
+  return `${distanceKm.toLocaleString('en-US')} km`;
+}
+
 function layout(title: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -318,7 +328,7 @@ export function renderAllTrips(
 
 
 export function renderTrip(
-  trip: Trip & { flights: Flight[] },
+  trip: Trip & { flights: Array<Flight & { distance_km?: number | null }> },
   allFlights: FlightWithTrip[]
 ): string {
   const rows = trip.flights.length
@@ -330,11 +340,12 @@ export function renderTrip(
             <td class="col-secondary">${formatDateTime(f.departure_datetime)}</td>
             <td class="col-secondary">${escapeHtml(f.airline ?? '—')}</td>
             <td>${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
+            <td>${escapeHtml(formatDistance(f.distance_km))}</td>
             <td>${statusBadge(f.status)}</td>
           </tr>`
         )
         .join('\n')
-    : `<tr><td colspan="6" class="empty">No flights on this trip.</td></tr>`;
+    : `<tr><td colspan="7" class="empty">No flights on this trip.</td></tr>`;
 
   const flightsJson = escapeHtml(
     JSON.stringify(
@@ -365,7 +376,7 @@ export function renderTrip(
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th>Duration</th><th>Status</th></tr>
+        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th>Duration</th><th>Distance</th><th>Status</th></tr>
       </thead>
       <tbody id="trip-flights-tbody">
         ${rows}
@@ -683,7 +694,7 @@ export interface AllFlightsPagination {
 }
 
 export function renderAllFlights(
-  flights: FlightWithTrip[],
+  flights: Array<FlightWithTrip & { distance_km?: number | null }>,
   sortLinks: AllFlightsSortLink[],
   pagination: AllFlightsPagination
 ): string {
@@ -700,6 +711,7 @@ export function renderAllFlights(
             }</span></td>
             <td class="col-secondary">${escapeHtml(f.airline ?? '—')}</td>
             <td>${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
+            <td>${escapeHtml(formatDistance(f.distance_km))}</td>
             <td>${statusBadge(f.status)}</td>
             <td class="col-secondary">${
               f.trip_id !== null
@@ -709,7 +721,7 @@ export function renderAllFlights(
           </tr>`
         )
         .join('\n')
-    : `<tr><td colspan="7" class="empty">No flights yet.</td></tr>`;
+    : `<tr><td colspan="8" class="empty">No flights yet.</td></tr>`;
 
   const headerCell = (link: AllFlightsSortLink) => {
     const arrow = link.active ? (link.direction === 'asc' ? ' ▲' : ' ▼') : '';
@@ -717,7 +729,7 @@ export function renderAllFlights(
   };
 
   // Header cells must line up 1:1 with the <td> order in each row below:
-  // Date, Flight, Route, Airline, Duration, Status, Trip.
+  // Date, Flight, Route, Airline, Duration, Distance, Status, Trip.
   const byColumn = (column: string) => sortLinks.find((link) => link.column === column)!;
   const thead = [
     headerCell(byColumn('departure_datetime')),
@@ -725,6 +737,7 @@ export function renderAllFlights(
     headerCell(byColumn('departure_airport')),
     '<th class="col-secondary">Airline</th>',
     '<th>Duration</th>',
+    '<th>Distance</th>',
     headerCell(byColumn('status')),
     '<th class="col-secondary">Trip</th>',
   ].join('\n        ');
