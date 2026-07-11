@@ -1,6 +1,7 @@
 import { withClient, withTransaction } from './db.js';
 import { config } from './config.js';
 import { getAirportLocation } from './airport-geo.js';
+import { haversineDistanceKm } from './flight-distance.js';
 import type { PoolClient } from 'pg';
 import type {
   CreateFlightInputT,
@@ -517,10 +518,67 @@ export async function listFlightsForMap(opts: ListFlightsForMapOptions = {}): Pr
  * merges contiguous city-stretches across the traveler's whole flight
  * history, so it needs the full set rather than a page of it.
  */
-export async function listFlightsForTimeline(): Promise<Flight[]> {
+/**
+ * Great-circle distance (km) between two airports, looked up by IATA code
+ * in the `airports_reference` table (see migration
+ * 1700000000004_create-airports-reference.cjs and
+ * scripts/seed-airports.mjs). Placement mirrors flight-duration.ts: the
+ * pure math lives in its own module (`flight-distance.ts`), while the data
+ * lookup that feeds it lives here in the repository layer, alongside the
+ * existing `airport-geo.ts` static-table lookups used by listFlightsForMap.
+ *
+ * Returns `null` (never throws) when either IATA code has no matching row
+ * in `airports_reference` -- an unknown/unseeded airport is a normal,
+ * expected condition here, not an error.
+ */
+export async function getAirportCoordinatesFromDb(
+  iataCode: string
+): Promise<{ latitude: number; longitude: number } | null> {
   return withClient(async (c) => {
+    const { rows } = await c.query<{ latitude: number; longitude: number }>(
+      `SELECT latitude, longitude FROM ${SCHEMA}.airports_reference WHERE iata_code = $1`,
+      [iataCode.toUpperCase()]
+    );
+    return rows[0] ?? null;
+  });
+}
+
+/**
+ * Great-circle distance (km, rounded) between two airports' IATA codes,
+ * via `airports_reference` coordinates and `haversineDistanceKm()`.
+ * Returns `null` when either code isn't found in `airports_reference`,
+ * rather than throwing -- callers (dashboard/MCP/CLI) should render this
+ * as "distance unknown" the same way `getFormattedFlightDuration()`
+ * signals "duration unknown".
+ */
+export async function getFlightDistanceKm(
+  departureAirport: string,
+  arrivalAirport: string
+): Promise<number | null> {
+  const [from, to] = await Promise.all([
+    getAirportCoordinatesFromDb(departureAirport),
+    getAirportCoordinatesFromDb(arrivalAirport),
+  ]);
+  if (from === null || to === null) return null;
+  return haversineDistanceKm(from, to);
+}
+
+export async function listFlightsForTimeline(filter: ListFlightsFilterT = {}): Promise<Flight[]> {
+  return withClient(async (c) => {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (filter.tripId !== undefined) {
+      params.push(filter.tripId);
+      clauses.push(`trip_id = $${params.length}`);
+    }
+    if (filter.status !== undefined) {
+      params.push(filter.status);
+      clauses.push(`status = $${params.length}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const { rows } = await c.query<Flight>(
-      `SELECT * FROM ${SCHEMA}.flights ORDER BY departure_datetime`
+      `SELECT * FROM ${SCHEMA}.flights ${where} ORDER BY departure_datetime`,
+      params
     );
     return rows;
   });

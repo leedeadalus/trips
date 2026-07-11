@@ -15,6 +15,7 @@ import {
   resolveMapDateRange,
   DEFAULT_MAP_RANGE_DAYS,
   getFlightDistanceKm,
+  listFlightsForTimeline,
 } from '../src/repository.js';
 import { pool } from '../src/db.js';
 
@@ -379,6 +380,37 @@ describe('audit_log instrumentation', () => {
     expect(after[0].count).toBe(before[0].count);
 
     await deleteFlight(flight.id, TEST_ACTOR);
+  });
+});
+
+describe('listFlightsForTimeline', () => {
+  it('scopes results to a single trip when tripId is given, matching an unfiltered call across trips', async () => {
+    const tripA = await createTrip({ name: `Vitest Timeline Trip A ${Date.now()}` }, TEST_ACTOR);
+    const tripB = await createTrip({ name: `Vitest Timeline Trip B ${Date.now()}` }, TEST_ACTOR);
+
+    const flightA = await createFlight({
+      flightNumber: 'TL100',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: new Date().toISOString(),
+      tripId: tripA.id,
+    }, TEST_ACTOR);
+
+    await createFlight({
+      flightNumber: 'TL200',
+      departureAirport: 'ORD',
+      arrivalAirport: 'SEA',
+      departureDatetime: new Date(Date.now() + 3600_000).toISOString(),
+      tripId: tripB.id,
+    }, TEST_ACTOR);
+
+    const scoped = await listFlightsForTimeline({ tripId: tripA.id });
+    expect(scoped.map((f) => f.id)).toEqual([flightA.id]);
+    expect(scoped.every((f) => f.trip_id === tripA.id)).toBe(true);
+
+    const unscoped = await listFlightsForTimeline();
+    const unscopedIds = unscoped.map((f) => f.id);
+    expect(unscopedIds).toContain(flightA.id);
   });
 });
 

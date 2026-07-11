@@ -119,3 +119,27 @@ what map rendering and city lookups need.
 - Do **not** add a second airport dataset (e.g. a Postgres
   `airports_reference` table) -- extend `AIRPORT_LOCATIONS` in
   `airport-geo.ts` instead when new codes show up in flight data.
+
+Note: a separate `trips.airports_reference` DB table (seeded from the
+OurAirports open dataset, see `migrations/1700000000004_create-airports-reference.cjs`
+and `scripts/seed-airports.mjs`) was added later for great-circle distance
+calculation -- see "Great-circle distance" below. The static
+`airport-geo.ts` table above remains the source of truth for map
+rendering/city lookups; `airports_reference` is a separate, wider dataset
+used only for distance math.
+
+## Great-circle distance (repository.ts)
+
+`getFlightDistanceKm(departureAirport, arrivalAirport)` in `repository.ts`
+computes the haversine great-circle distance (kilometers, rounded) between
+two IATA codes, mirroring the placement of flight-duration logic:
+
+- Pure math lives in `src/flight-distance.ts` (`haversineDistanceKm()`),
+  independent of the DB -- same split as `flight-duration.ts`.
+- The DB lookup (`airports_reference` by `iata_code`) lives in the
+  repository layer, alongside the existing `airport-geo.ts` lookups used
+  by `listFlightsForMap()`.
+- Returns `null` (never throws) when either code has no row in
+  `airports_reference` -- an unmapped/unseeded airport is treated the
+  same way `getFormattedFlightDuration()` treats a missing
+  `arrival_datetime`: "unknown", not an error.
