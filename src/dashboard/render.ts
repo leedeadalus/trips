@@ -156,6 +156,84 @@ export function renderTripList(trips: Trip[]): string {
   return layout('Trips', body);
 }
 
+export interface TripListSortLink {
+  label: string;
+  column: string;
+  href: string;
+  active: boolean;
+  direction: 'asc' | 'desc';
+}
+
+export interface TripListPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  prevHref: string | null;
+  nextHref: string | null;
+}
+
+export function renderAllTrips(
+  trips: TripWithFlightCount[],
+  sortLinks: TripListSortLink[],
+  pagination: TripListPagination
+): string {
+  const rows = trips.length
+    ? trips
+        .map(
+          (t) => `<tr>
+            <td>${t.id}</td>
+            <td><a class="row-link" href="/trips/${t.id}">${escapeHtml(t.name)}</a><span class="cell-sub">${escapeHtml(t.description ?? '')}</span></td>
+            <td>${formatDate(t.start_date)}</td>
+            <td class="col-secondary">${formatDate(t.end_date)}</td>
+            <td>${t.flight_count}</td>
+          </tr>`
+        )
+        .join('\n')
+    : `<tr><td colspan="5" class="empty">No trips yet.</td></tr>`;
+
+  const headerCell = (link: TripListSortLink) => {
+    const arrow = link.active ? (link.direction === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th><a class="row-link" href="${link.href}">${escapeHtml(link.label)}${arrow}</a></th>`;
+  };
+
+  const thead = sortLinks.map(headerCell).join('\n        ');
+
+  const rangeStart = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
+  const rangeEnd = Math.min(pagination.page * pagination.pageSize, pagination.total);
+
+  const pager = `
+  <div class="meta" style="display:flex; align-items:center; justify-content:space-between; margin-top:0.75rem;">
+    <span>Showing ${rangeStart}-${rangeEnd} of ${pagination.total} trip${pagination.total === 1 ? '' : 's'} &middot; page ${pagination.page} of ${Math.max(pagination.totalPages, 1)}</span>
+    <span>
+      ${pagination.prevHref ? `<a class="row-link" href="${pagination.prevHref}">&larr; Prev</a>` : '<span class="empty">&larr; Prev</span>'}
+      &nbsp;&middot;&nbsp;
+      ${pagination.nextHref ? `<a class="row-link" href="${pagination.nextHref}">Next &rarr;</a>` : '<span class="empty">Next &rarr;</span>'}
+    </span>
+  </div>`;
+
+  const body = `
+  <div class="card">
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+        <th>ID</th>
+        ${thead}
+        <th>Flights</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+    </div>
+    ${pager}
+  </div>`;
+  return layout('All Trips', body);
+}
+
+
 export function renderTrip(trip: Trip & { flights: Flight[] }): string {
   const rows = trip.flights.length
     ? trip.flights
