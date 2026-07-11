@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { renderAllFlights, type AllFlightsSortLink } from '../src/dashboard/render.js';
-import type { FlightWithTrip } from '../src/repository.js';
+import { renderAllFlights, renderAllTrips, renderTrip, type AllFlightsSortLink, type TripListSortLink } from '../src/dashboard/render.js';
+import type { FlightWithTrip, TripWithFlightCount, Trip } from '../src/repository.js';
 
 function makeSortLinks(activeColumn: string): AllFlightsSortLink[] {
   const columns = [
@@ -113,5 +113,111 @@ describe('renderAllFlights', () => {
     const html = renderAllFlights([flight], makeSortLinks('departure_datetime'), makePagination());
 
     expect(html).toContain('Distance unknown');
+  });
+});
+
+function makeTripSortLinks(activeColumn: string): TripListSortLink[] {
+  const columns = [
+    { column: 'name', label: 'Trip' },
+    { column: 'start_date', label: 'Start' },
+    { column: 'end_date', label: 'End' },
+    { column: 'flight_count', label: 'Flights' },
+  ];
+  return columns.map(({ column, label }) => ({
+    label,
+    column,
+    href: `/?sort=${column}`,
+    active: column === activeColumn,
+    direction: 'asc' as const,
+  }));
+}
+
+function makeTripPagination() {
+  return {
+    page: 1,
+    pageSize: 25,
+    total: 1,
+    totalPages: 1,
+    prevHref: null,
+    nextHref: null,
+  };
+}
+
+describe('renderAllTrips', () => {
+  it('renders the end date in the End column for a trip that has one set', () => {
+    const trip: TripWithFlightCount = {
+      id: 1,
+      name: 'Europe Spring Trip',
+      description: 'Preseeded trip',
+      start_date: '2026-03-18',
+      end_date: '2026-03-26',
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+      flight_count: 3,
+    };
+
+    const html = renderAllTrips([trip], makeTripSortLinks('start_date'), makeTripPagination());
+
+    expect(html).toContain('2026-03-26');
+    // The End column value must also be present in the narrow-viewport
+    // fallback (cell-sub span under the trip name), since the col-secondary
+    // <td> that normally holds it is hidden below the 768px/640px breakpoints.
+    expect(html).toContain('2026-03-18 &ndash; 2026-03-26');
+  });
+
+  it('renders "\u2014" gracefully for a trip with no end date set, with no crash', () => {
+    const trip: TripWithFlightCount = {
+      id: 2,
+      name: 'Undated Trip',
+      description: null,
+      start_date: null,
+      end_date: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+      flight_count: 0,
+    };
+
+    const html = renderAllTrips([trip], makeTripSortLinks('start_date'), makeTripPagination());
+
+    expect(html).toContain('Undated Trip');
+    expect(html).not.toContain('Invalid Date');
+    expect(html).not.toContain('NaN');
+  });
+});
+
+describe('renderTrip', () => {
+  it('renders the trip detail end date when set', () => {
+    const trip: Trip & { flights: [] } = {
+      id: 1,
+      name: 'Europe Spring Trip',
+      description: null,
+      start_date: '2026-03-18',
+      end_date: '2026-03-26',
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+      flights: [],
+    };
+
+    const html = renderTrip(trip, []);
+
+    expect(html).toContain('2026-03-18 to 2026-03-26');
+  });
+
+  it('renders trip detail gracefully when end date is missing', () => {
+    const trip: Trip & { flights: [] } = {
+      id: 2,
+      name: 'Undated Trip',
+      description: null,
+      start_date: null,
+      end_date: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+      flights: [],
+    };
+
+    const html = renderTrip(trip, []);
+
+    expect(html).toContain('\u2014 to \u2014');
+    expect(html).not.toContain('Invalid Date');
   });
 });
