@@ -1,6 +1,7 @@
 {
-  "migrations-dir": "migrations",
+  "migrations-dir": "migrations/*.cjs",
   "migrations-schema": "trips",
   "schema": "trips",
-  "migration-file-language": "cjs"
+  "migration-file-language": "cjs",
+  "use-glob": true
 }
