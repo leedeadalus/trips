@@ -510,6 +510,22 @@ export async function listFlightsForMap(opts: ListFlightsForMapOptions = {}): Pr
   });
 }
 
+/**
+ * All flights shaped for city-timeline derivation (t_9f9b6891) -- the
+ * fields deriveCityTimeline() needs (departure/arrival airport + datetime,
+ * status), ordered chronologically. No pagination: the timeline view
+ * merges contiguous city-stretches across the traveler's whole flight
+ * history, so it needs the full set rather than a page of it.
+ */
+export async function listFlightsForTimeline(): Promise<Flight[]> {
+  return withClient(async (c) => {
+    const { rows } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights ORDER BY departure_datetime`
+    );
+    return rows;
+  });
+}
+
 export async function markFlightNotFlown(flightId: number, actor: ActorContext): Promise<Flight> {
   return withTransaction(async (c) => {
     const { rows: before } = await c.query<Flight>(
@@ -517,7 +533,6 @@ export async function markFlightNotFlown(flightId: number, actor: ActorContext):
       [flightId]
     );
     if (before.length === 0) throw new Error(`Flight ${flightId} not found`);
-
     const { rows } = await c.query<Flight>(
       `UPDATE ${SCHEMA}.flights SET status = 'not_flown' WHERE id = $1 RETURNING *`,
       [flightId]

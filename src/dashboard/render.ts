@@ -2,6 +2,7 @@ import type { Flight, FlightWithTrip, Trip, TripWithFlightCount, FlightMapPoint 
 import { getFormattedFlightDuration } from '../flight-duration.js';
 import { renderFlightMap, type MapFlight } from './flight-map.js';
 import { renderDateRangePicker } from './date-range-picker.js';
+import type { CitySegment } from '../city-timeline.js';
 
 function escapeHtml(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -199,6 +200,7 @@ function layout(title: string, body: string): string {
     <a href="/">All Trips</a>
     <a href="/flights">All Flights</a>
     <a href="/map">Map View</a>
+    <a href="/timeline">City Timeline</a>
   </nav>
 </header>
 <main>
@@ -859,6 +861,74 @@ export function renderMapView(data: MapViewData): string {
   </script>`;
 
   return layout('Map View', body);
+}
+
+export interface CityTimelineViewData {
+  segments: CitySegment[];
+  loading?: boolean;
+}
+
+/**
+ * Renders the City Timeline screen (t_9f9b6891): the city-per-day timeline
+ * derived by deriveCityTimeline() in ../city-timeline.ts, shown as
+ * contiguous blocks per city (one card per merged city-stretch) rather
+ * than one row per day. Purely additive -- does not touch the existing
+ * Trips/Flights/Map views.
+ *
+ * - Zero segments (no eligible flights): a friendly empty state, no error.
+ * - Segments with start/end === null render as "Unknown start"/"Ongoing"
+ *   respectively, since the very first/last stretch is intentionally
+ *   unbounded (see city-timeline.ts).
+ * - A segment whose city fell back to a raw IATA code (unknown airport,
+ *   see cityFor() in city-timeline.ts) is still rendered normally -- the
+ *   code itself is a graceful-enough label, nothing throws or blanks out.
+ */
+export function renderCityTimeline(data: CityTimelineViewData): string {
+  const { segments } = data;
+
+  function formatBound(value: string | null, fallback: string): string {
+    if (value === null) return fallback;
+    return formatDateTime(value);
+  }
+
+  function durationLabel(segment: CitySegment): string {
+    if (segment.start === null || segment.end === null) return '';
+    const ms = new Date(segment.end).getTime() - new Date(segment.start).getTime();
+    if (Number.isNaN(ms) || ms <= 0) return '';
+    const days = Math.round(ms / (24 * 60 * 60 * 1000));
+    if (days < 1) return '&lt; 1 day';
+    return `${days} day${days === 1 ? '' : 's'}`;
+  }
+
+  const blocks = segments.length
+    ? segments
+        .map((segment, i) => {
+          const isUnknownCity = /^[A-Z]{3}$/.test(segment.city) && segment.city === segment.city.toUpperCase();
+          const cityLabel = isUnknownCity
+            ? `${escapeHtml(segment.city)} <span class="badge" style="background:rgba(154,161,172,0.15); color: var(--muted);">Unknown city</span>`
+            : escapeHtml(segment.city);
+          const duration = durationLabel(segment);
+          return `<div class="card city-segment" style="margin-bottom:0.75rem;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+              <h3 style="margin:0;">${i + 1}. ${cityLabel}</h3>
+              ${duration ? `<span class="meta">${duration}</span>` : ''}
+            </div>
+            <div class="meta" style="margin-top:0.4rem;">
+              ${formatBound(segment.start, 'Unknown start')} &rarr; ${formatBound(segment.end, 'Ongoing')}
+            </div>
+          </div>`;
+        })
+        .join('\n')
+    : `<div class="card empty">No timeline yet -- no confirmed or completed flights to derive a city-per-day view from.</div>`;
+
+  const body = `
+  <div class="card">
+    <h2 style="margin-top:0">City Timeline</h2>
+    <div class="meta">${segments.length} city block${segments.length === 1 ? '' : 's'} derived from confirmed/completed flights.</div>
+  </div>
+  ${blocks}`;
+
+  return layout('City Timeline', body);
 }
 
 export function renderNotFound(message: string): string {
