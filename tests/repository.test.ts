@@ -1,5 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { createTrip, createFlight, markFlightNotFlown, markFlightFlown, listFlights, deleteFlight } from '../src/repository.js';
+import {
+  createTrip,
+  createFlight,
+  markFlightNotFlown,
+  markFlightFlown,
+  listFlights,
+  deleteFlight,
+  listTripsWithFlightCounts,
+} from '../src/repository.js';
 import { pool } from '../src/db.js';
 
 describe('trips and flights', () => {
@@ -35,6 +43,36 @@ describe('trips and flights', () => {
 
     await deleteFlight(flight1.id);
     await deleteFlight(flight2.id);
+  });
+
+  it('reports accurate flight counts per trip, including zero-flight trips', async () => {
+    const tripWithFlights = await createTrip({ name: `Vitest Counted Trip ${Date.now()}` });
+    const tripWithoutFlights = await createTrip({ name: `Vitest Empty Trip ${Date.now()}` });
+
+    const f1 = await createFlight({
+      flightNumber: 'CNT100',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: new Date().toISOString(),
+      tripId: tripWithFlights.id,
+    });
+    const f2 = await createFlight({
+      flightNumber: 'CNT101',
+      departureAirport: 'LAX',
+      arrivalAirport: 'JFK',
+      departureDatetime: new Date(Date.now() + 86400000).toISOString(),
+      tripId: tripWithFlights.id,
+    });
+
+    const counts = await listTripsWithFlightCounts();
+    const withFlights = counts.find((t) => t.id === tripWithFlights.id);
+    const withoutFlights = counts.find((t) => t.id === tripWithoutFlights.id);
+
+    expect(withFlights?.flight_count).toBe(2);
+    expect(withoutFlights?.flight_count).toBe(0);
+
+    await deleteFlight(f1.id);
+    await deleteFlight(f2.id);
   });
 });
 

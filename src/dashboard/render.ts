@@ -1,4 +1,5 @@
 import type { Flight, FlightWithTrip, Trip } from '../repository.js';
+import { getFormattedFlightDuration } from '../flight-duration.js';
 
 function escapeHtml(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -130,10 +131,10 @@ export function renderTripList(trips: Trip[]): string {
     ? trips
         .map(
           (t) => `<tr>
-            <td><a class="row-link" href="/trips/${t.id}">${escapeHtml(t.name)}</a></td>
+            <td><a class="row-link" href="/trips/${t.id}">${escapeHtml(t.name)}</a><span class="cell-sub">${escapeHtml(t.description ?? '')}</span></td>
             <td>${formatDate(t.start_date)}</td>
             <td>${formatDate(t.end_date)}</td>
-            <td>${escapeHtml(t.description ?? '')}</td>
+            <td class="col-secondary">${escapeHtml(t.description ?? '')}</td>
           </tr>`
         )
         .join('\n')
@@ -144,7 +145,7 @@ export function renderTripList(trips: Trip[]): string {
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Trip</th><th>Start</th><th>End</th><th>Description</th></tr>
+        <tr><th>Trip</th><th>Start</th><th>End</th><th class="col-secondary">Description</th></tr>
       </thead>
       <tbody>
         ${rows}
@@ -164,11 +165,12 @@ export function renderTrip(trip: Trip & { flights: Flight[] }): string {
             <td>${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${formatDateTime(f.departure_datetime)} &middot; ${escapeHtml(f.airline ?? '—')}</span></td>
             <td class="col-secondary">${formatDateTime(f.departure_datetime)}</td>
             <td class="col-secondary">${escapeHtml(f.airline ?? '—')}</td>
+            <td>${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
             <td>${statusBadge(f.status)}</td>
           </tr>`
         )
         .join('\n')
-    : `<tr><td colspan="5" class="empty">No flights on this trip.</td></tr>`;
+    : `<tr><td colspan="6" class="empty">No flights on this trip.</td></tr>`;
 
   const body = `
   <div class="card">
@@ -182,7 +184,7 @@ export function renderTrip(trip: Trip & { flights: Flight[] }): string {
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th>Status</th></tr>
+        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th>Duration</th><th>Status</th></tr>
       </thead>
       <tbody>
         ${rows}
