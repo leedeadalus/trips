@@ -231,13 +231,13 @@ app.get('/timeline', async (req, res, next) => {
     // pg returns timestamp columns as Date objects; deriveCityTimeline expects
     // ISO date strings (see TimelineFlightInput in city-timeline.ts), so
     // normalize here rather than changing that module's input contract.
+    const toIso = (value: unknown): string | null =>
+      value instanceof Date ? value.toISOString() : (value as string | null);
     const timelineInput = flights.map((f) => ({
       departure_airport: f.departure_airport,
       arrival_airport: f.arrival_airport,
-      departure_datetime:
-        f.departure_datetime instanceof Date ? f.departure_datetime.toISOString() : f.departure_datetime,
-      arrival_datetime:
-        f.arrival_datetime instanceof Date ? f.arrival_datetime.toISOString() : f.arrival_datetime,
+      departure_datetime: toIso(f.departure_datetime) as string,
+      arrival_datetime: toIso(f.arrival_datetime),
       status: f.status,
     }));
     const segments = deriveCityTimeline(timelineInput);
