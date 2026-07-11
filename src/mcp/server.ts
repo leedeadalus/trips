@@ -42,7 +42,7 @@ server.tool(
     endDate: z.string().optional(),
   },
   async (input) => ({
-    content: [{ type: 'text', text: JSON.stringify(await repo.createTrip(input), null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(await repo.createTrip(input, { type: 'mcp' }), null, 2) }],
   })
 );
 
@@ -79,7 +79,7 @@ server.tool(
     tripId: z.number().int().optional(),
   },
   async (input) => ({
-    content: [{ type: 'text', text: JSON.stringify(await repo.createFlight(input), null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(await repo.createFlight(input, { type: 'mcp' }), null, 2) }],
   })
 );
 
@@ -88,7 +88,7 @@ server.tool(
   'Attach (or detach with tripId=null) a flight to a trip',
   { flightId: z.number().int(), tripId: z.number().int().nullable() },
   async ({ flightId, tripId }) => ({
-    content: [{ type: 'text', text: JSON.stringify(await repo.assignFlightToTrip(flightId, tripId), null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(await repo.assignFlightToTrip(flightId, tripId, { type: 'mcp' }), null, 2) }],
   })
 );
 
@@ -97,7 +97,7 @@ server.tool(
   'Mark a booked flight as not flown (booked but never taken)',
   { flightId: z.number().int() },
   async ({ flightId }) => ({
-    content: [{ type: 'text', text: JSON.stringify(await repo.markFlightNotFlown(flightId), null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(await repo.markFlightNotFlown(flightId, { type: 'mcp' }), null, 2) }],
   })
 );
 
@@ -106,7 +106,7 @@ server.tool(
   'Mark a flight as completed/flown',
   { flightId: z.number().int() },
   async ({ flightId }) => ({
-    content: [{ type: 'text', text: JSON.stringify(await repo.markFlightFlown(flightId), null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(await repo.markFlightFlown(flightId, { type: 'mcp' }), null, 2) }],
   })
 );
 
@@ -115,7 +115,7 @@ server.tool(
   'Delete a flight record',
   { flightId: z.number().int() },
   async ({ flightId }) => {
-    await repo.deleteFlight(flightId);
+    await repo.deleteFlight(flightId, { type: 'mcp' });
     return { content: [{ type: 'text', text: `Deleted flight ${flightId}` }] };
   }
 );

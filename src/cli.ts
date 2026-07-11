@@ -26,7 +26,7 @@ trip
       description: opts.description,
       startDate: opts.start,
       endDate: opts.end,
-    });
+    }, { type: 'user', idOrContext: 'cli' });
     console.log(JSON.stringify(t, null, 2));
   });
 
@@ -82,7 +82,7 @@ flight
       status: opts.status,
       notes: opts.notes,
       tripId: opts.trip ? Number(opts.trip) : undefined,
-    });
+    }, { type: 'user', idOrContext: 'cli' });
     console.log(JSON.stringify(f, null, 2));
   });
 
@@ -103,7 +103,7 @@ flight
   .argument('<flightId>')
   .argument('<tripId>')
   .action(async (flightId, tripId) => {
-    const f = await repo.assignFlightToTrip(Number(flightId), Number(tripId));
+    const f = await repo.assignFlightToTrip(Number(flightId), Number(tripId), { type: 'user', idOrContext: 'cli' });
     console.log(JSON.stringify(f, null, 2));
   });
 
@@ -111,7 +111,7 @@ flight
   .command('mark-not-flown')
   .argument('<flightId>')
   .action(async (flightId) => {
-    const f = await repo.markFlightNotFlown(Number(flightId));
+    const f = await repo.markFlightNotFlown(Number(flightId), { type: 'user', idOrContext: 'cli' });
     console.log(JSON.stringify(f, null, 2));
   });
 
@@ -119,7 +119,7 @@ flight
   .command('mark-flown')
   .argument('<flightId>')
   .action(async (flightId) => {
-    const f = await repo.markFlightFlown(Number(flightId));
+    const f = await repo.markFlightFlown(Number(flightId), { type: 'user', idOrContext: 'cli' });
     console.log(JSON.stringify(f, null, 2));
   });
 
@@ -127,7 +127,7 @@ flight
   .command('delete')
   .argument('<flightId>')
   .action(async (flightId) => {
-    await repo.deleteFlight(Number(flightId));
+    await repo.deleteFlight(Number(flightId), { type: 'user', idOrContext: 'cli' });
     console.log(`Deleted flight ${flightId}`);
   });
 
