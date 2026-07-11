@@ -54,6 +54,28 @@ export async function listTrips(): Promise<Trip[]> {
   });
 }
 
+export interface TripWithFlightCount extends Trip {
+  flight_count: number;
+}
+
+/**
+ * All trips with an efficient per-trip flight count, via a single LEFT JOIN +
+ * GROUP BY (uses the flights.trip_id index — no N+1 queries). Trips with zero
+ * flights are still included with flight_count = 0.
+ */
+export async function listTripsWithFlightCounts(): Promise<TripWithFlightCount[]> {
+  return withClient(async (c) => {
+    const { rows } = await c.query<TripWithFlightCount>(
+      `SELECT t.*, COUNT(f.id)::int AS flight_count
+       FROM ${SCHEMA}.trips t
+       LEFT JOIN ${SCHEMA}.flights f ON f.trip_id = t.id
+       GROUP BY t.id
+       ORDER BY t.start_date NULLS LAST, t.id`
+    );
+    return rows;
+  });
+}
+
 export async function getTrip(id: number): Promise<(Trip & { flights: Flight[] }) | null> {
   return withClient(async (c) => {
     const { rows } = await c.query<Trip>(`SELECT * FROM ${SCHEMA}.trips WHERE id = $1`, [id]);
@@ -112,6 +134,52 @@ export async function listFlights(filter: ListFlightsFilterT = {}): Promise<Flig
       params
     );
     return rows;
+  });
+}
+
+export interface FlightWithTrip extends Flight {
+  trip_name: string | null;
+}
+
+export interface ListAllFlightsOptions {
+  sort?: 'departure_datetime' | 'flight_number' | 'departure_airport' | 'arrival_airport' | 'status';
+  order?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
+const ALL_FLIGHTS_SORT_COLUMNS = new Set([
+  'departure_datetime',
+  'flight_number',
+  'departure_airport',
+  'arrival_airport',
+  'status',
+]);
+
+export async function listAllFlights(
+  opts: ListAllFlightsOptions = {}
+): Promise<{ flights: FlightWithTrip[]; total: number; page: number; pageSize: number }> {
+  const sort = ALL_FLIGHTS_SORT_COLUMNS.has(opts.sort ?? '') ? opts.sort! : 'departure_datetime';
+  const order = opts.order === 'asc' ? 'ASC' : 'DESC';
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), 200);
+  const page = Math.max(opts.page ?? 1, 1);
+  const offset = (page - 1) * pageSize;
+
+  return withClient(async (c) => {
+    const { rows: countRows } = await c.query<{ count: string }>(
+      `SELECT COUNT(*) FROM ${SCHEMA}.flights`
+    );
+    const total = Number(countRows[0]?.count ?? 0);
+
+    const { rows } = await c.query<FlightWithTrip>(
+      `SELECT f.*, t.name AS trip_name
+       FROM ${SCHEMA}.flights f
+       LEFT JOIN ${SCHEMA}.trips t ON t.id = f.trip_id
+       ORDER BY f.${sort} ${order} NULLS LAST, f.id ${order}
+       LIMIT $1 OFFSET $2`,
+      [pageSize, offset]
+    );
+    return { flights: rows, total, page, pageSize };
   });
 }
 
