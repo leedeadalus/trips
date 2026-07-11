@@ -33,9 +33,8 @@ for both) so the hostname `trips-postgres` resolves via Docker's embedded DNS.
 ## Setup
 
 ```bash
-npm install
-cp .env.example .env   # adjust as needed
-npm run migrate:up
+docker compose up -d postgres
+docker compose run --rm migrate
 ```
 
 ## Migrations
@@ -44,10 +43,14 @@ Migrations live in `migrations/` and are committed to git. `node-pg-migrate` con
 `.node-pg-migraterc.json` (targets the `trips` schema for both the migrated objects and the
 `pgmigrations` bookkeeping table's search path via `PGSCHEMA`).
 
+Migrations run inside a container (`migrate` service, profile `tools`), built from the same
+image as `app`/`mcp`, connecting to the `postgres` service over the shared `trips-net` network
+— no host Node/npx required:
+
 ```bash
-npm run migrate:up      # apply all pending migrations
-npm run migrate:down    # roll back the most recent migration
-npx node-pg-migrate create <name>   # scaffold a new migration
+docker compose run --rm migrate                    # apply all pending migrations (up)
+docker compose run --rm migrate down                # roll back the most recent migration
+docker compose run --rm migrate create <name>       # scaffold a new migration
 ```
 
 Current migrations:
@@ -84,19 +87,24 @@ node dist/mcp/server.js
 
 Or for local development without building: `npm run mcp` (runs via `tsx`).
 
-Register with an MCP-capable client (stdio transport), e.g.:
+### Registering with Hermes (containerized, project convention)
 
-```json
-{
-  "mcpServers": {
-    "trips-flights": {
-      "command": "node",
-      "args": ["/mnt/appdata/hermes/repos/trips-app/dist/mcp/server.js"],
-      "env": { "DATABASE_URL": "postgres://trips:trips_dev_password@trips-postgres:5432/trips" }
-    }
-  }
-}
+Per project convention this MCP server must run inside its container (via `docker compose run`),
+not as a bare host `node` process. Register it with the Hermes CLI:
+
+```bash
+hermes mcp add trips-flights --command docker --args \
+  compose -f /mnt/appdata/hermes/repos/trips-app/docker-compose.yml run --rm -T mcp
 ```
+
+Notes:
+- `--args` takes space-separated tokens (NOT a single comma/space-joined string) — Hermes execs
+  `command` directly without a shell, so `--command "docker compose ... run --rm mcp"` as one string
+  will fail with "Connection closed". Split it: `command: docker`, and put the rest in `--args`.
+- The `-T` flag on `docker compose run` disables pseudo-TTY allocation, required for stdio-based
+  MCP transport to work over the piped stdin/stdout.
+- Verify with `hermes mcp test trips-flights` and `hermes mcp list`.
+- Start a new Hermes session (`/reset`) after registering for the tools to become available.
 
 Exposed tools: `list_trips`, `get_trip`, `create_trip`, `list_flights`, `create_flight`,
 `assign_flight_to_trip`, `mark_flight_not_flown`, `mark_flight_flown`, `delete_flight`.
