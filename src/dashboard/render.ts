@@ -202,7 +202,7 @@ export function renderAllTrips(
     ? trips
         .map(
           (t) => `<tr>
-            <td>${t.id}</td>
+            <td class="col-secondary">${t.id}</td>
             <td><a class="row-link" href="/trips/${t.id}">${escapeHtml(t.name)}</a><span class="cell-sub">${escapeHtml(t.description ?? '')}</span></td>
             <td>${formatDate(t.start_date)}</td>
             <td class="col-secondary">${formatDate(t.end_date)}</td>
