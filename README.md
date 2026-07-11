@@ -109,6 +109,18 @@ Notes:
 Exposed tools: `list_trips`, `get_trip`, `create_trip`, `list_flights`, `create_flight`,
 `assign_flight_to_trip`, `mark_flight_not_flown`, `mark_flight_flown`, `delete_flight`.
 
+## Seed Data
+
+`migrations/seed_real_data.sql` re-creates the real trips/flights from the original data
+(5 trips, 20 flights, including the 3 genuinely `not_flown` bookings). It's a plain SQL
+script, not a `node-pg-migrate` migration — running it truncates and reinserts, so it's
+idempotent but destructive to any other data you've added by hand.
+
+```bash
+docker cp migrations/seed_real_data.sql trips-postgres:/tmp/seed_real_data.sql
+docker exec trips-postgres psql -U trips -d trips -f /tmp/seed_real_data.sql
+```
+
 ## Tests
 
 Locally (against the containerized Postgres on `localhost:5433`):
