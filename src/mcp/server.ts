@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import * as repo from '../repository.js';
 import { getFormattedFlightDuration } from '../flight-duration.js';
+import { deriveCityTimeline } from '../city-timeline.js';
 
 function withDuration<T extends { departure_datetime: string; arrival_datetime: string | null }>(
   flight: T
@@ -117,6 +118,26 @@ server.tool(
   async ({ flightId }) => {
     await repo.deleteFlight(flightId, { type: 'mcp' });
     return { content: [{ type: 'text', text: `Deleted flight ${flightId}` }] };
+  }
+);
+
+server.tool(
+  'get_city_timeline',
+  'Get the derived city-per-day timeline for a trip (or all flights if no tripId is given): an ordered list of {city, start, end} segments describing where the traveler was over time',
+  { tripId: z.number().int().optional(), status: z.enum(['confirmed', 'not_flown', 'cancelled', 'completed']).optional() },
+  async ({ tripId, status }) => {
+    const flights = await repo.listFlights({ tripId, status });
+    // repo.listFlights() returns datetimes as pg-driver Date objects at
+    // runtime (despite the Flight type declaring them as string) --
+    // deriveCityTimeline() requires ISO strings, so normalize here rather
+    // than relaxing the shared derivation logic's input contract.
+    const timelineInput = flights.map((f) => ({
+      ...f,
+      departure_datetime: new Date(f.departure_datetime).toISOString(),
+      arrival_datetime: f.arrival_datetime ? new Date(f.arrival_datetime).toISOString() : null,
+    }));
+    const timeline = deriveCityTimeline(timelineInput);
+    return { content: [{ type: 'text', text: JSON.stringify(timeline, null, 2) }] };
   }
 );
 
