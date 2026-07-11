@@ -234,21 +234,40 @@ export function renderAllTrips(
 }
 
 
-export function renderTrip(trip: Trip & { flights: Flight[] }): string {
+export function renderTrip(
+  trip: Trip & { flights: Flight[] },
+  allFlights: FlightWithTrip[]
+): string {
   const rows = trip.flights.length
     ? trip.flights
         .map(
           (f) => `<tr>
             <td>${escapeHtml(f.flight_number)}</td>
-            <td>${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${formatDateTime(f.departure_datetime)} &middot; ${escapeHtml(f.airline ?? '—')} &middot; ${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</span></td>
+            <td>${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${formatDateTime(f.departure_datetime)} &middot; ${escapeHtml(f.airline ?? '—')}</span></td>
             <td class="col-secondary">${formatDateTime(f.departure_datetime)}</td>
             <td class="col-secondary">${escapeHtml(f.airline ?? '—')}</td>
-            <td class="col-secondary">${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
+            <td>${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
             <td>${statusBadge(f.status)}</td>
           </tr>`
         )
         .join('\n')
     : `<tr><td colspan="6" class="empty">No flights on this trip.</td></tr>`;
+
+  const flightsJson = escapeHtml(
+    JSON.stringify(
+      allFlights.map((f) => ({
+        id: f.id,
+        flightNumber: f.flight_number,
+        from: f.departure_airport,
+        to: f.arrival_airport,
+        departure: f.departure_datetime,
+        airline: f.airline,
+        status: f.status,
+        tripId: f.trip_id,
+        tripName: f.trip_name,
+      }))
+    )
+  ).replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 
   const body = `
   <div class="card">
@@ -259,19 +278,291 @@ export function renderTrip(trip: Trip & { flights: Flight[] }): string {
     </div>
   </div>
   <div class="card">
+    <h3 style="margin-top:0">Flights on this trip</h3>
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th class="col-secondary">Duration</th><th>Status</th></tr>
+        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th>Duration</th><th>Status</th></tr>
       </thead>
-      <tbody>
+      <tbody id="trip-flights-tbody">
         ${rows}
       </tbody>
     </table>
     </div>
-  </div>`;
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Add flights to this trip</h3>
+
+    <div class="picker-tabs">
+      <button type="button" class="picker-tab active" data-tab="individual">Select individually</button>
+      <button type="button" class="picker-tab" data-tab="range">Select by date range</button>
+    </div>
+
+    <div class="picker-pane" data-pane="individual">
+      <input type="text" id="flight-search" class="text-input" placeholder="Search by flight number, route, or airline…">
+      <div class="table-wrap" style="max-height: 320px; overflow-y: auto; margin-top: 0.75rem;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:2rem;"></th>
+              <th>Flight</th>
+              <th>Route</th>
+              <th class="col-secondary">Departure</th>
+              <th class="col-secondary">Airline</th>
+              <th>Current trip</th>
+            </tr>
+          </thead>
+          <tbody id="flight-picker-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="picker-pane" data-pane="range" style="display:none;">
+      <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:end;">
+        <label class="field-label">Start date
+          <input type="date" id="range-start" class="text-input">
+        </label>
+        <label class="field-label">End date
+          <input type="date" id="range-end" class="text-input">
+        </label>
+        <button type="button" id="range-preview-btn" class="btn-secondary">Preview matching flights</button>
+      </div>
+      <div id="range-preview-result" class="meta" style="margin-top:0.5rem;"></div>
+      <div class="table-wrap" style="max-height: 260px; overflow-y: auto; margin-top: 0.5rem;">
+        <table>
+          <thead>
+            <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th>Current trip</th></tr>
+          </thead>
+          <tbody id="range-preview-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <h4 style="margin-bottom:0.4rem;">Currently selected (${'<span id="selected-count">0</span>'})</h4>
+    <div id="selected-list" class="selected-list"><span class="empty">No flights selected yet.</span></div>
+
+    <div style="margin-top:1rem; display:flex; gap:0.75rem; align-items:center;">
+      <button type="button" id="save-selection-btn" class="btn-primary">Save flight selection</button>
+      <span id="save-status" class="meta"></span>
+    </div>
+  </div>
+
+  <style>
+    .picker-tabs { display:flex; gap:0.5rem; margin-bottom:1rem; }
+    .picker-tab {
+      background: var(--panel); color: var(--muted); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem;
+    }
+    .picker-tab.active { color: var(--text); border-color: var(--accent); }
+    .text-input {
+      background: #0f1115; color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.9rem; width: 100%; max-width: 420px;
+    }
+    .field-label { display:flex; flex-direction:column; gap:0.3rem; font-size:0.8rem; color: var(--muted); }
+    .btn-primary, .btn-secondary {
+      border: none; border-radius: 8px; padding: 0.55rem 1.1rem; font-size: 0.9rem; cursor: pointer;
+    }
+    .btn-primary { background: var(--accent); color: #0b0d11; font-weight: 600; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+    .selected-list { display:flex; flex-wrap:wrap; gap:0.5rem; min-height: 2rem; }
+    .chip {
+      display:inline-flex; align-items:center; gap:0.4rem; background: rgba(91,141,239,0.12);
+      color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem 0.5rem 0.25rem 0.7rem;
+      font-size: 0.82rem;
+    }
+    .chip button {
+      background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 0 0.15rem;
+    }
+    .chip button:hover { color: #e04a4a; }
+    .picker-row.already-in-trip { opacity: 0.55; }
+    .picker-row.selected td { background: rgba(91,141,239,0.08); }
+  </style>
+
+  <script>
+  (function () {
+    var TRIP_ID = ${trip.id};
+    var ALL_FLIGHTS = ${flightsJson};
+    var selected = new Map(); // id -> flight object
+
+    function fmtDate(v) {
+      if (!v) return '—';
+      var d = new Date(v);
+      if (isNaN(d.getTime())) return String(v);
+      return d.toISOString().slice(0, 10);
+    }
+    function fmtDateTime(v) {
+      if (!v) return '—';
+      var d = new Date(v);
+      if (isNaN(d.getTime())) return String(v);
+      return d.toISOString().slice(0, 16).replace('T', ' ');
+    }
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function tripLabel(f) {
+      if (f.tripId === null || f.tripId === undefined) return '<span class="empty">Unassigned</span>';
+      if (f.tripId === TRIP_ID) return '<span class="badge badge-completed">This trip</span>';
+      return escapeHtml(f.tripName || ('Trip ' + f.tripId));
+    }
+
+    var tabs = document.querySelectorAll('.picker-tab');
+    var panes = document.querySelectorAll('.picker-pane');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        tabs.forEach(function (t) { t.classList.remove('active'); });
+        tab.classList.add('active');
+        var name = tab.getAttribute('data-tab');
+        panes.forEach(function (p) {
+          p.style.display = p.getAttribute('data-pane') === name ? '' : 'none';
+        });
+      });
+    });
+
+    function renderPickerRows(filterText) {
+      var tbody = document.getElementById('flight-picker-tbody');
+      var q = (filterText || '').trim().toLowerCase();
+      var matches = ALL_FLIGHTS.filter(function (f) {
+        if (!q) return true;
+        var hay = [f.flightNumber, f.from, f.to, f.airline].join(' ').toLowerCase();
+        return hay.indexOf(q) !== -1;
+      });
+      if (matches.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No matching flights.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = matches.map(function (f) {
+        var isSelected = selected.has(f.id);
+        var inThisTrip = f.tripId === TRIP_ID;
+        return '<tr class="picker-row' + (isSelected ? ' selected' : '') + (inThisTrip ? ' already-in-trip' : '') + '" data-id="' + f.id + '">' +
+          '<td><input type="checkbox" class="picker-checkbox" data-id="' + f.id + '"' + (isSelected ? ' checked' : '') + '></td>' +
+          '<td>' + escapeHtml(f.flightNumber) + '</td>' +
+          '<td>' + escapeHtml(f.from) + ' \u2192 ' + escapeHtml(f.to) + '</td>' +
+          '<td class="col-secondary">' + fmtDateTime(f.departure) + '</td>' +
+          '<td class="col-secondary">' + escapeHtml(f.airline || '\u2014') + '</td>' +
+          '<td>' + tripLabel(f) + '</td>' +
+          '</tr>';
+      }).join('');
+
+      tbody.querySelectorAll('.picker-checkbox').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var id = Number(cb.getAttribute('data-id'));
+          var flight = ALL_FLIGHTS.find(function (f) { return f.id === id; });
+          if (cb.checked) { selected.set(id, flight); } else { selected.delete(id); }
+          renderSelected();
+          renderPickerRows(document.getElementById('flight-search').value);
+        });
+      });
+    }
+
+    function renderSelected() {
+      var list = document.getElementById('selected-list');
+      var count = document.getElementById('selected-count');
+      count.textContent = String(selected.size);
+      if (selected.size === 0) {
+        list.innerHTML = '<span class="empty">No flights selected yet.</span>';
+        document.getElementById('save-selection-btn').disabled = false;
+        return;
+      }
+      var chips = [];
+      selected.forEach(function (f, id) {
+        chips.push('<span class="chip" data-id="' + id + '">' +
+          escapeHtml(f.flightNumber) + ' (' + escapeHtml(f.from) + '\u2192' + escapeHtml(f.to) + ', ' + fmtDate(f.departure) + ')' +
+          '<button type="button" data-remove="' + id + '" title="Remove">\u00d7</button></span>');
+      });
+      list.innerHTML = chips.join('');
+      list.querySelectorAll('button[data-remove]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = Number(btn.getAttribute('data-remove'));
+          selected.delete(id);
+          renderSelected();
+          renderPickerRows(document.getElementById('flight-search').value);
+          renderRangePreview();
+        });
+      });
+    }
+
+    document.getElementById('flight-search').addEventListener('input', function (e) {
+      renderPickerRows(e.target.value);
+    });
+
+    function currentRangeMatches() {
+      var start = document.getElementById('range-start').value;
+      var end = document.getElementById('range-end').value;
+      if (!start || !end) return null;
+      return ALL_FLIGHTS.filter(function (f) {
+        var d = fmtDate(f.departure);
+        return d >= start && d <= end;
+      });
+    }
+
+    function renderRangePreview() {
+      var matches = currentRangeMatches();
+      var resultEl = document.getElementById('range-preview-result');
+      var tbody = document.getElementById('range-preview-tbody');
+      if (matches === null) {
+        resultEl.textContent = 'Pick a start and end date to preview.';
+        tbody.innerHTML = '';
+        return;
+      }
+      resultEl.textContent = matches.length + ' flight' + (matches.length === 1 ? '' : 's') + ' match this range.';
+      tbody.innerHTML = matches.length
+        ? matches.map(function (f) {
+            return '<tr><td>' + escapeHtml(f.flightNumber) + '</td><td>' + escapeHtml(f.from) + ' \u2192 ' + escapeHtml(f.to) + '</td>' +
+              '<td class="col-secondary">' + fmtDateTime(f.departure) + '</td><td>' + tripLabel(f) + '</td></tr>';
+          }).join('')
+        : '<tr><td colspan="4" class="empty">No flights in this range.</td></tr>';
+    }
+
+    document.getElementById('range-preview-btn').addEventListener('click', function () {
+      var matches = currentRangeMatches();
+      renderRangePreview();
+      if (matches) {
+        matches.forEach(function (f) { selected.set(f.id, f); });
+        renderSelected();
+        renderPickerRows(document.getElementById('flight-search').value);
+      }
+    });
+
+    document.getElementById('save-selection-btn').addEventListener('click', function () {
+      var btn = document.getElementById('save-selection-btn');
+      var status = document.getElementById('save-status');
+      var ids = Array.from(selected.keys());
+      if (ids.length === 0) {
+        status.textContent = 'Select at least one flight first.';
+        return;
+      }
+      btn.disabled = true;
+      status.textContent = 'Saving…';
+      fetch('/trips/' + TRIP_ID + '/flights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flightIds: ids }),
+      })
+        .then(function (res) {
+          if (!res.ok) throw new Error('Save failed (' + res.status + ')');
+          return res.json();
+        })
+        .then(function () {
+          status.textContent = 'Saved! Reloading…';
+          window.location.reload();
+        })
+        .catch(function (err) {
+          status.textContent = err.message || 'Save failed.';
+          btn.disabled = false;
+        });
+    });
+
+    renderPickerRows('');
+    renderSelected();
+  })();
+  </script>`;
   return layout(trip.name, body);
 }
+
 
 export interface AllFlightsSortLink {
   label: string;
@@ -307,6 +598,7 @@ export function renderAllFlights(
                 : 'Unassigned'
             }</span></td>
             <td class="col-secondary">${escapeHtml(f.airline ?? '—')}</td>
+            <td>${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
             <td>${statusBadge(f.status)}</td>
             <td class="col-secondary">${
               f.trip_id !== null
@@ -316,7 +608,7 @@ export function renderAllFlights(
           </tr>`
         )
         .join('\n')
-    : `<tr><td colspan="6" class="empty">No flights yet.</td></tr>`;
+    : `<tr><td colspan="7" class="empty">No flights yet.</td></tr>`;
 
   const headerCell = (link: AllFlightsSortLink) => {
     const arrow = link.active ? (link.direction === 'asc' ? ' ▲' : ' ▼') : '';
@@ -345,6 +637,7 @@ export function renderAllFlights(
       <thead>
         <tr>
         ${thead}
+        <th>Duration</th>
         <th class="col-secondary">Trip</th>
         </tr>
       </thead>

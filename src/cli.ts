@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import * as repo from './repository.js';
+import { getFormattedFlightDuration } from './flight-duration.js';
+
+function withDuration<T extends { departure_datetime: string; arrival_datetime: string | null }>(
+  flights: T[]
+): Array<T & { duration: string }> {
+  return flights.map((f) => ({ ...f, duration: getFormattedFlightDuration(f) ?? 'unknown' }));
+}
 
 const program = new Command();
 program.name('trips-app').description('Track flights and group them into trips');
@@ -40,7 +47,7 @@ trip
       process.exitCode = 1;
       return;
     }
-    console.log(JSON.stringify(t, null, 2));
+    console.log(JSON.stringify({ ...t, flights: withDuration(t.flights) }, null, 2));
   });
 
 const flight = program.command('flight');
@@ -88,7 +95,7 @@ flight
       tripId: opts.trip ? Number(opts.trip) : undefined,
       status: opts.status,
     });
-    console.table(flights);
+    console.table(withDuration(flights));
   });
 
 flight

@@ -7,6 +7,10 @@ import {
   listFlights,
   deleteFlight,
   listTripsWithFlightCounts,
+  assignFlightsToTrip,
+  assignFlightsInDateRangeToTrip,
+  listFlightsInDateRange,
+  getTrip,
 } from '../src/repository.js';
 import { pool } from '../src/db.js';
 

@@ -2,6 +2,13 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import * as repo from '../repository.js';
+import { getFormattedFlightDuration } from '../flight-duration.js';
+
+function withDuration<T extends { departure_datetime: string; arrival_datetime: string | null }>(
+  flight: T
+): T & { duration: string | null } {
+  return { ...flight, duration: getFormattedFlightDuration(flight) };
+}
 
 const server = new McpServer({ name: 'trips-flights-mcp', version: '0.1.0' });
 
@@ -20,7 +27,8 @@ server.tool(
   { tripId: z.number().int() },
   async ({ tripId }) => {
     const trip = await repo.getTrip(tripId);
-    return { content: [{ type: 'text', text: JSON.stringify(trip, null, 2) }] };
+    const result = trip ? { ...trip, flights: trip.flights.map(withDuration) } : trip;
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
 
@@ -46,7 +54,9 @@ server.tool(
     status: z.enum(['confirmed', 'not_flown', 'cancelled', 'completed']).optional(),
   },
   async (input) => ({
-    content: [{ type: 'text', text: JSON.stringify(await repo.listFlights(input), null, 2) }],
+    content: [
+      { type: 'text', text: JSON.stringify((await repo.listFlights(input)).map(withDuration), null, 2) },
+    ],
   })
 );
 

@@ -213,6 +213,24 @@ export async function listAllFlights(
   });
 }
 
+/**
+ * All flights (no pagination), with trip name joined in, for the trip-detail
+ * flight-selection picker — the picker needs the full universe of flights to
+ * search/filter client-side and to know which trip (if any) each flight is
+ * currently attached to.
+ */
+export async function listAllFlightsForPicker(): Promise<FlightWithTrip[]> {
+  return withClient(async (c) => {
+    const { rows } = await c.query<FlightWithTrip>(
+      `SELECT f.*, t.name AS trip_name
+       FROM ${SCHEMA}.flights f
+       LEFT JOIN ${SCHEMA}.trips t ON t.id = f.trip_id
+       ORDER BY f.departure_datetime`
+    );
+    return rows;
+  });
+}
+
 export async function getFlight(id: number): Promise<Flight | null> {
   return withClient(async (c) => {
     const { rows } = await c.query<Flight>(`SELECT * FROM ${SCHEMA}.flights WHERE id = $1`, [id]);
@@ -228,6 +246,64 @@ export async function assignFlightToTrip(flightId: number, tripId: number | null
     );
     if (rows.length === 0) throw new Error(`Flight ${flightId} not found`);
     return rows[0];
+  });
+}
+
+/**
+ * Bulk-assign an explicit set of flight ids to a trip (individual-selection
+ * mode in the trip-detail picker). Any flight id not found is silently
+ * skipped (RETURNING only reflects matched rows) — caller can diff
+ * `flightIds.length` vs the returned rows to detect that if needed.
+ */
+export async function assignFlightsToTrip(flightIds: number[], tripId: number | null): Promise<Flight[]> {
+  if (flightIds.length === 0) return [];
+  return withClient(async (c) => {
+    const { rows } = await c.query<Flight>(
+      `UPDATE ${SCHEMA}.flights SET trip_id = $1 WHERE id = ANY($2::int[]) RETURNING *`,
+      [tripId, flightIds]
+    );
+    return rows;
+  });
+}
+
+/**
+ * Assign every flight whose departure_datetime falls within [startDate,
+ * endDate] (inclusive, by calendar day) to a trip — date-range selection
+ * mode in the trip-detail picker. Returns the flights that were assigned.
+ */
+export async function assignFlightsInDateRangeToTrip(
+  startDate: string,
+  endDate: string,
+  tripId: number | null
+): Promise<Flight[]> {
+  return withClient(async (c) => {
+    const { rows } = await c.query<Flight>(
+      `UPDATE ${SCHEMA}.flights
+       SET trip_id = $3
+       WHERE departure_datetime::date BETWEEN $1::date AND $2::date
+       RETURNING *`,
+      [startDate, endDate, tripId]
+    );
+    return rows;
+  });
+}
+
+/**
+ * Preview which flights fall within a date range, without mutating
+ * anything — used by the trip-detail picker to show the user what a
+ * date-range selection would include before they confirm/save.
+ */
+export async function listFlightsInDateRange(startDate: string, endDate: string): Promise<FlightWithTrip[]> {
+  return withClient(async (c) => {
+    const { rows } = await c.query<FlightWithTrip>(
+      `SELECT f.*, t.name AS trip_name
+       FROM ${SCHEMA}.flights f
+       LEFT JOIN ${SCHEMA}.trips t ON t.id = f.trip_id
+       WHERE f.departure_datetime::date BETWEEN $1::date AND $2::date
+       ORDER BY f.departure_datetime`,
+      [startDate, endDate]
+    );
+    return rows;
   });
 }
 
