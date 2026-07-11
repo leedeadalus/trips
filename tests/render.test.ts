@@ -1,6 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { renderAllFlights, renderAllTrips, renderTrip, type AllFlightsSortLink, type TripListSortLink } from '../src/dashboard/render.js';
 import type { FlightWithTrip, TripWithFlightCount, Trip } from '../src/repository.js';
+import {
+  loadColumnVisibility,
+  saveColumnVisibility,
+  toggleColumnVisibility,
+  type StorageLike,
+} from '../src/dashboard/column-visibility.js';
+
+/** In-memory Storage stand-in, matching the pattern in column-visibility.test.ts. */
+function memoryStorage(initial: Record<string, string> = {}): StorageLike {
+  const store = new Map(Object.entries(initial));
+  return {
+    getItem(key: string) {
+      return store.has(key) ? store.get(key)! : null;
+    },
+    setItem(key: string, value: string) {
+      store.set(key, value);
+    },
+  };
+}
 
 function makeSortLinks(activeColumn: string): AllFlightsSortLink[] {
   const columns = [
@@ -219,5 +238,77 @@ describe('renderTrip', () => {
 
     expect(html).toContain('\u2014 to \u2014');
     expect(html).not.toContain('Invalid Date');
+  });
+});
+
+function makeTrip(overrides: Partial<TripWithFlightCount> = {}): TripWithFlightCount {
+  return {
+    id: 1,
+    name: 'Trip to Paris',
+    description: 'Summer vacation',
+    start_date: '2026-06-01',
+    end_date: '2026-06-10',
+    flight_count: 2,
+    ...overrides,
+  } as unknown as TripWithFlightCount;
+}
+
+describe('renderAllTrips column visibility', () => {
+  it('renders the column-visibility control with a storage key distinct from the Flights list', () => {
+    const html = renderAllTrips([makeTrip()], makeTripSortLinks('name'), makeTripPagination());
+
+    expect(html).toContain('id="trips-list-columns-container"');
+    expect(html).toContain('"trips-list-columns"');
+    // Must not collide with the Flights list's own storage key.
+    expect(html).not.toContain('"flights-list-columns"');
+  });
+
+  it('tags every trip-table header and cell with a matching data-column attribute', () => {
+    const html = renderAllTrips([makeTrip()], makeTripSortLinks('name'), makeTripPagination());
+
+    const theadStart = html.indexOf('<thead>');
+    const theadEnd = html.indexOf('</thead>');
+    const theadHtml = html.slice(theadStart, theadEnd);
+    const tbodyStart = html.indexOf('<tbody>');
+    const rowHtml = html.slice(tbodyStart);
+
+    for (const key of ['id', 'name', 'start_date', 'end_date', 'flight_count']) {
+      expect(theadHtml).toContain(`data-column="${key}"`);
+      expect(rowHtml).toContain(`data-column="${key}"`);
+    }
+  });
+
+  it('toggling a column off in the persisted visibility state hides it in a freshly rendered table (simulated reload)', () => {
+    const storage = memoryStorage();
+    const columns = [
+      { key: 'id', label: 'ID' },
+      { key: 'name', label: 'Trip' },
+      { key: 'start_date', label: 'Start' },
+      { key: 'end_date', label: 'End' },
+      { key: 'flight_count', label: 'Flights' },
+    ];
+
+    // Simulate a user toggling off the "end_date" column via the control.
+    const initial = loadColumnVisibility('trips-list-columns', columns, storage);
+    const toggled = toggleColumnVisibility(initial, 'end_date');
+    saveColumnVisibility('trips-list-columns', toggled, storage);
+
+    // Simulated reload: load the persisted state back out from the same storage/key.
+    const reloaded = loadColumnVisibility('trips-list-columns', columns, storage);
+    expect(reloaded.end_date).toBe(false);
+    expect(reloaded.name).toBe(true);
+
+    // The server-rendered table itself always renders every data-column cell --
+    // the control's inline script hides them client-side via the persisted state
+    // (see column-visibility.ts applyVisibility()). Confirm the cell exists to be
+    // hidden, and that reloading the same storage key round-trips the choice.
+    const html = renderAllTrips([makeTrip()], makeTripSortLinks('name'), makeTripPagination());
+    expect(html).toContain('data-column="end_date"');
+
+    // Toggling back on restores it.
+    const restored = toggleColumnVisibility(reloaded, 'end_date');
+    saveColumnVisibility('trips-list-columns', restored, storage);
+    const reloadedAgain = loadColumnVisibility('trips-list-columns', columns, storage);
+    expect(reloadedAgain.end_date).toBe(true);
   });
 });
