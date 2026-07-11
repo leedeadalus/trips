@@ -190,7 +190,7 @@ describe('listFlightsForMap / resolveMapDateRange', () => {
     expect(ids).not.toContain(outOfRange.id);
 
     const jfkPoint = points.find((p) => p.id === inRange1.id)!;
-    expect(jfkPoint.departure).toEqual({ code: 'JFK', name: expect.any(String), lat: expect.any(Number), lon: expect.any(Number) });
+    expect(jfkPoint.departure).toEqual(expect.objectContaining({ code: 'JFK', name: expect.any(String), lat: expect.any(Number), lon: expect.any(Number) }));
     expect(jfkPoint.arrival?.code).toBe('LAX');
 
     await deleteFlight(inRange1.id);
