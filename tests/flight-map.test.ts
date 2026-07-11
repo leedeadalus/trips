@@ -63,7 +63,7 @@ describe('renderFlightMap', () => {
     const html = renderFlightMap({ idPrefix: 'test-map', flights: [] });
     expect(html).toContain('No flights in this range.');
     expect(html).toContain('id="test-map-map"');
-    expect(html).toContain('FLIGHTS.length === 0');
+    expect(html).toContain('flights.length === 0');
   });
 
   it('renders map markup with flight data embedded for a single flight', () => {

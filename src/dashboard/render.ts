@@ -1,5 +1,7 @@
-import type { Flight, FlightWithTrip, Trip, TripWithFlightCount } from '../repository.js';
+import type { Flight, FlightWithTrip, Trip, TripWithFlightCount, FlightMapPoint } from '../repository.js';
 import { getFormattedFlightDuration } from '../flight-duration.js';
+import { renderFlightMap, type MapFlight } from './flight-map.js';
+import { renderDateRangePicker } from './date-range-picker.js';
 
 function escapeHtml(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -196,6 +198,7 @@ function layout(title: string, body: string): string {
   <nav style="display:flex; gap:1rem;">
     <a href="/">All Trips</a>
     <a href="/flights">All Flights</a>
+    <a href="/map">Map View</a>
   </nav>
 </header>
 <main>
@@ -754,6 +757,108 @@ export function renderAllFlights(
     ${pager}
   </div>`;
   return layout('All Flights', body);
+}
+
+
+/**
+ * Converts a repository FlightMapPoint (DB row shape + resolved airport
+ * coordinates) into the MapFlight shape the flight-map component expects.
+ * Shared between the initial server render and the client-side re-fetch
+ * script (kept as a named export so both call sites -- and tests -- use
+ * the exact same mapping).
+ */
+export function flightMapPointToMapFlight(p: FlightMapPoint): MapFlight {
+  return {
+    id: p.id,
+    flightNumber: p.flightNumber,
+    status: p.status,
+    departure: p.departure,
+    arrival: p.arrival,
+  };
+}
+
+export interface MapViewData {
+  flights: FlightMapPoint[];
+  startDate: string;
+  endDate: string;
+}
+
+/**
+ * Renders the Map View screen (t_840d41c0): a date-range picker wired to
+ * the flight-route map, defaulting to the last 90 days. Changing the date
+ * range calls back to `/api/map-flights` and re-renders the map in place
+ * via `renderFlightMap`'s `updateFlights()` hook -- no full page reload.
+ */
+export function renderMapView(data: MapViewData): string {
+  const { flights, startDate, endDate } = data;
+  const mapFlights: MapFlight[] = flights.map(flightMapPointToMapFlight);
+
+  const pickerHtml = renderDateRangePicker({
+    idPrefix: 'map-view-range',
+    startDate,
+    endDate,
+    label: 'Time period',
+  });
+
+  const mapHtml = renderFlightMap({
+    idPrefix: 'map-view',
+    flights: mapFlights,
+    height: '560px',
+  });
+
+  const body = `
+  <div class="card">
+    <h2 style="margin-top:0">Map View</h2>
+    <div class="meta" id="map-view-status">Showing ${flights.length} flight${flights.length === 1 ? '' : 's'} from ${escapeHtml(startDate)} to ${escapeHtml(endDate)}.</div>
+  </div>
+  <div class="card">
+    ${pickerHtml}
+  </div>
+  <div class="card">
+    ${mapHtml}
+  </div>
+  <script>
+  (function () {
+    var rangeContainer = document.getElementById('map-view-range-container');
+    var mapContainer = document.getElementById('map-view-container');
+    var statusEl = document.getElementById('map-view-status');
+
+    function setStatus(text) {
+      if (statusEl) statusEl.textContent = text;
+    }
+
+    function fetchAndUpdate(startDate, endDate) {
+      if (!startDate || !endDate) return;
+      if (startDate > endDate) {
+        setStatus('Start date is after end date -- pick a valid range.');
+        if (mapContainer && mapContainer.updateFlights) mapContainer.updateFlights([]);
+        return;
+      }
+      setStatus('Loading…');
+      fetch('/api/map-flights?startDate=' + encodeURIComponent(startDate) + '&endDate=' + encodeURIComponent(endDate))
+        .then(function (res) {
+          if (!res.ok) throw new Error('Failed to load flights (' + res.status + ')');
+          return res.json();
+        })
+        .then(function (payload) {
+          var flights = (payload && payload.flights) || [];
+          if (mapContainer && mapContainer.updateFlights) mapContainer.updateFlights(flights);
+          setStatus('Showing ' + flights.length + ' flight' + (flights.length === 1 ? '' : 's') + ' from ' + startDate + ' to ' + endDate + '.');
+        })
+        .catch(function (err) {
+          setStatus((err && err.message) || 'Failed to load flights.');
+        });
+    }
+
+    if (rangeContainer) {
+      rangeContainer.addEventListener('daterangechange', function (e) {
+        fetchAndUpdate(e.detail.startDate, e.detail.endDate);
+      });
+    }
+  })();
+  </script>`;
+
+  return layout('Map View', body);
 }
 
 export function renderNotFound(message: string): string {
