@@ -78,6 +78,67 @@ describe('trips and flights', () => {
     await deleteFlight(f1.id);
     await deleteFlight(f2.id);
   });
+
+  it('selects flights individually and links them to a trip', async () => {
+    const trip = await createTrip({ name: `Vitest Individual Trip ${Date.now()}` });
+    const f1 = await createFlight({
+      flightNumber: 'IND100',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: new Date().toISOString(),
+    });
+    const f2 = await createFlight({
+      flightNumber: 'IND101',
+      departureAirport: 'LAX',
+      arrivalAirport: 'JFK',
+      departureDatetime: new Date(Date.now() + 86400000).toISOString(),
+    });
+
+    const assigned = await assignFlightsToTrip([f1.id, f2.id], trip.id);
+    expect(assigned.map((f) => f.id).sort()).toEqual([f1.id, f2.id].sort());
+
+    const withFlights = await getTrip(trip.id);
+    expect(withFlights?.flights.map((f) => f.id).sort()).toEqual([f1.id, f2.id].sort());
+
+    await deleteFlight(f1.id);
+    await deleteFlight(f2.id);
+  });
+
+  it('selects a date range and links all flights whose date falls within it', async () => {
+    const trip = await createTrip({ name: `Vitest Range Trip ${Date.now()}` });
+    const inRange1 = await createFlight({
+      flightNumber: 'RNG100',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: '2027-06-02T10:00:00Z',
+    });
+    const inRange2 = await createFlight({
+      flightNumber: 'RNG101',
+      departureAirport: 'LAX',
+      arrivalAirport: 'JFK',
+      departureDatetime: '2027-06-04T10:00:00Z',
+    });
+    const outOfRange = await createFlight({
+      flightNumber: 'RNG102',
+      departureAirport: 'ORD',
+      arrivalAirport: 'DEN',
+      departureDatetime: '2027-07-01T10:00:00Z',
+    });
+
+    const preview = await listFlightsInDateRange('2027-06-01', '2027-06-05');
+    expect(preview.map((f) => f.id).sort()).toEqual([inRange1.id, inRange2.id].sort());
+
+    const assigned = await assignFlightsInDateRangeToTrip('2027-06-01', '2027-06-05', trip.id);
+    expect(assigned.map((f) => f.id).sort()).toEqual([inRange1.id, inRange2.id].sort());
+
+    const refreshedOut = await listFlights({});
+    const outFlight = refreshedOut.find((f) => f.id === outOfRange.id);
+    expect(outFlight?.trip_id).toBeNull();
+
+    await deleteFlight(inRange1.id);
+    await deleteFlight(inRange2.id);
+    await deleteFlight(outOfRange.id);
+  });
 });
 
 afterAll(async () => {
