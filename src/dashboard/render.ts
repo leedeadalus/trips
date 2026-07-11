@@ -1,4 +1,4 @@
-import type { Flight, FlightWithTrip, Trip } from '../repository.js';
+import type { Flight, FlightWithTrip, Trip, TripWithFlightCount } from '../repository.js';
 import { getFormattedFlightDuration } from '../flight-duration.js';
 
 function escapeHtml(value: unknown): string {
@@ -162,10 +162,10 @@ export function renderTrip(trip: Trip & { flights: Flight[] }): string {
         .map(
           (f) => `<tr>
             <td>${escapeHtml(f.flight_number)}</td>
-            <td>${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${formatDateTime(f.departure_datetime)} &middot; ${escapeHtml(f.airline ?? '—')}</span></td>
+            <td>${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${formatDateTime(f.departure_datetime)} &middot; ${escapeHtml(f.airline ?? '—')} &middot; ${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</span></td>
             <td class="col-secondary">${formatDateTime(f.departure_datetime)}</td>
             <td class="col-secondary">${escapeHtml(f.airline ?? '—')}</td>
-            <td>${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
+            <td class="col-secondary">${escapeHtml(getFormattedFlightDuration(f) ?? 'Duration unknown')}</td>
             <td>${statusBadge(f.status)}</td>
           </tr>`
         )
@@ -184,7 +184,7 @@ export function renderTrip(trip: Trip & { flights: Flight[] }): string {
     <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th>Duration</th><th>Status</th></tr>
+        <tr><th>Flight</th><th>Route</th><th class="col-secondary">Departure</th><th class="col-secondary">Airline</th><th class="col-secondary">Duration</th><th>Status</th></tr>
       </thead>
       <tbody>
         ${rows}

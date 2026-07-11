@@ -58,21 +58,51 @@ export interface TripWithFlightCount extends Trip {
   flight_count: number;
 }
 
+export interface ListTripsWithFlightCountsOptions {
+  sort?: 'start_date' | 'end_date' | 'name' | 'flight_count';
+  order?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
+const TRIPS_SORT_COLUMNS: Record<string, string> = {
+  start_date: 't.start_date',
+  end_date: 't.end_date',
+  name: 't.name',
+  flight_count: 'flight_count',
+};
+
 /**
  * All trips with an efficient per-trip flight count, via a single LEFT JOIN +
  * GROUP BY (uses the flights.trip_id index — no N+1 queries). Trips with zero
- * flights are still included with flight_count = 0.
+ * flights are still included with flight_count = 0. Supports sorting and
+ * pagination consistent with listAllFlights().
  */
-export async function listTripsWithFlightCounts(): Promise<TripWithFlightCount[]> {
+export async function listTripsWithFlightCounts(
+  opts: ListTripsWithFlightCountsOptions = {}
+): Promise<{ trips: TripWithFlightCount[]; total: number; page: number; pageSize: number }> {
+  const sortCol = TRIPS_SORT_COLUMNS[opts.sort ?? ''] ?? TRIPS_SORT_COLUMNS.start_date;
+  const order = opts.order === 'asc' ? 'ASC' : 'DESC';
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), 200);
+  const page = Math.max(opts.page ?? 1, 1);
+  const offset = (page - 1) * pageSize;
+
   return withClient(async (c) => {
+    const { rows: countRows } = await c.query<{ count: string }>(
+      `SELECT COUNT(*) FROM ${SCHEMA}.trips`
+    );
+    const total = Number(countRows[0]?.count ?? 0);
+
     const { rows } = await c.query<TripWithFlightCount>(
       `SELECT t.*, COUNT(f.id)::int AS flight_count
        FROM ${SCHEMA}.trips t
        LEFT JOIN ${SCHEMA}.flights f ON f.trip_id = t.id
        GROUP BY t.id
-       ORDER BY t.start_date NULLS LAST, t.id`
+       ORDER BY ${sortCol} ${order} NULLS LAST, t.id ${order}
+       LIMIT $1 OFFSET $2`,
+      [pageSize, offset]
     );
-    return rows;
+    return { trips: rows, total, page, pageSize };
   });
 }
 

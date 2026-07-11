@@ -64,7 +64,7 @@ describe('trips and flights', () => {
       tripId: tripWithFlights.id,
     });
 
-    const counts = await listTripsWithFlightCounts();
+    const { trips: counts } = await listTripsWithFlightCounts({ pageSize: 200 });
     const withFlights = counts.find((t) => t.id === tripWithFlights.id);
     const withoutFlights = counts.find((t) => t.id === tripWithoutFlights.id);
 
