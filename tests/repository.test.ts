@@ -14,6 +14,7 @@ import {
   listFlightsForMap,
   resolveMapDateRange,
   DEFAULT_MAP_RANGE_DAYS,
+  getFlightDistanceKm,
 } from '../src/repository.js';
 import { pool } from '../src/db.js';
 
@@ -264,6 +265,84 @@ describe('audit_log instrumentation', () => {
     expect(flightDeletes).toHaveLength(1);
     expect(flightDeletes[0].new_values).toBeNull();
     expect(flightDeletes[0].old_values.flight_number).toBe('AUD100');
+    expect(flightDeletes[0].actor_type).toBe('user');
+    expect(flightDeletes[0].actor_id_or_context).toBe('vitest');
+  });
+
+  it('records an update audit row with actor_type=mcp, correct actor context, and pre/post snapshots', async () => {
+    const MCP_ACTOR = { type: 'mcp' as const, idOrContext: 'mark_flight_flown' };
+
+    const flight = await createFlight({
+      flightNumber: 'AUDMCP1',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: new Date().toISOString(),
+    }, TEST_ACTOR);
+
+    await markFlightNotFlown(flight.id, MCP_ACTOR);
+
+    const { rows: flightUpdates } = await pool.query(
+      `SELECT * FROM audit_log WHERE table_name = 'flights' AND record_id = $1 AND action = 'update'`,
+      [flight.id]
+    );
+    expect(flightUpdates).toHaveLength(1);
+    expect(flightUpdates[0].actor_type).toBe('mcp');
+    expect(flightUpdates[0].actor_id_or_context).toBe('mark_flight_flown');
+    expect(flightUpdates[0].old_values.status).toBe('confirmed');
+    expect(flightUpdates[0].old_values.id).toBe(flight.id);
+    expect(flightUpdates[0].new_values.status).toBe('not_flown');
+    expect(flightUpdates[0].new_values.id).toBe(flight.id);
+
+    await deleteFlight(flight.id, TEST_ACTOR);
+  });
+
+  it('records an insert audit row with correct actor context for a flight created via an mcp actor', async () => {
+    const MCP_ACTOR = { type: 'mcp' as const, idOrContext: 'create_flight' };
+
+    const flight = await createFlight({
+      flightNumber: 'AUDMCP2',
+      departureAirport: 'ORD',
+      arrivalAirport: 'DEN',
+      departureDatetime: new Date().toISOString(),
+    }, MCP_ACTOR);
+
+    const { rows: flightInserts } = await pool.query(
+      `SELECT * FROM audit_log WHERE table_name = 'flights' AND record_id = $1 AND action = 'insert'`,
+      [flight.id]
+    );
+    expect(flightInserts).toHaveLength(1);
+    expect(flightInserts[0].actor_type).toBe('mcp');
+    expect(flightInserts[0].actor_id_or_context).toBe('create_flight');
+    expect(flightInserts[0].old_values).toBeNull();
+    expect(flightInserts[0].new_values.flight_number).toBe('AUDMCP2');
+
+    await deleteFlight(flight.id, TEST_ACTOR);
+  });
+
+  it('records a delete audit row with old_values matching the pre-delete flight and null new_values, via an mcp-deleted flight', async () => {
+    const trip = await createTrip({ name: `Vitest Delete Audit Trip ${Date.now()}` }, TEST_ACTOR);
+    const flight = await createFlight({
+      flightNumber: 'AUDDEL1',
+      departureAirport: 'SFO',
+      arrivalAirport: 'SEA',
+      departureDatetime: new Date().toISOString(),
+      tripId: trip.id,
+    }, TEST_ACTOR);
+
+    const MCP_ACTOR = { type: 'mcp' as const, idOrContext: 'delete_flight' };
+    await deleteFlight(flight.id, MCP_ACTOR);
+
+    const { rows: flightDeletes2 } = await pool.query(
+      `SELECT * FROM audit_log WHERE table_name = 'flights' AND record_id = $1 AND action = 'delete'`,
+      [flight.id]
+    );
+    expect(flightDeletes2).toHaveLength(1);
+    expect(flightDeletes2[0].actor_type).toBe('mcp');
+    expect(flightDeletes2[0].actor_id_or_context).toBe('delete_flight');
+    expect(flightDeletes2[0].new_values).toBeNull();
+    expect(flightDeletes2[0].old_values.id).toBe(flight.id);
+    expect(flightDeletes2[0].old_values.flight_number).toBe('AUDDEL1');
+    expect(flightDeletes2[0].old_values.trip_id).toBe(trip.id);
   });
 
   it('does not persist an audit_log row when the mutation transaction rolls back', async () => {
@@ -300,6 +379,25 @@ describe('audit_log instrumentation', () => {
     expect(after[0].count).toBe(before[0].count);
 
     await deleteFlight(flight.id, TEST_ACTOR);
+  });
+});
+
+describe('flight distance calculation (haversine via airports_reference)', () => {
+  it('returns a plausible distance for two known airport codes', async () => {
+    const distance = await getFlightDistanceKm('JFK', 'LAX');
+    expect(distance).not.toBeNull();
+    expect(distance).toBeGreaterThan(3900);
+    expect(distance).toBeLessThan(4050);
+  });
+
+  it('returns null (not an error) when one airport code is unknown', async () => {
+    const distance = await getFlightDistanceKm('JFK', 'ZZZ');
+    expect(distance).toBeNull();
+  });
+
+  it('returns null (not an error) when both airport codes are unknown', async () => {
+    const distance = await getFlightDistanceKm('QQQ', 'WWW');
+    expect(distance).toBeNull();
   });
 });
 
