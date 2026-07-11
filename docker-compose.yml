@@ -71,6 +71,25 @@ services:
     networks:
       - trips-net
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trips-app:latest
+    container_name: trips-dashboard
+    command: ["node", "dist/dashboard/server.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://trips:trips_dev_password@trips-postgres:5432/trips
+      PGSCHEMA: trips
+      PORT: "4173"
+    ports:
+      - "4173:4173"
+    networks:
+      - trips-net
+
   migrate:
     build:
       context: .
