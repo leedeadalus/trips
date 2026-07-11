@@ -69,8 +69,8 @@ function layout(title: string, body: string): string {
   }
   header h1 { margin: 0; font-size: 1.25rem; }
   header a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
-  main { max-width: 960px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
-  .table-wrap { overflow-x: auto; }
+  main { width: 100%; max-width: 960px; margin: 0 auto; padding: 1.5rem 2rem 3rem; overflow-x: hidden; }
+  .table-wrap { overflow-x: auto; max-width: 100%; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
   th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
@@ -91,6 +91,7 @@ function layout(title: string, body: string): string {
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: capitalize;
+    white-space: nowrap;
   }
   .badge-confirmed { background: rgba(91,141,239,0.15); color: #5b8def; }
   .badge-completed { background: rgba(59,181,110,0.15); color: #3bb56e; }
@@ -100,14 +101,33 @@ function layout(title: string, body: string): string {
   .meta { color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem; }
   .cell-sub { display: none; color: var(--muted); font-size: 0.78rem; font-weight: 400; text-transform: none; margin-top: 0.15rem; white-space: normal; }
 
-  @media (max-width: 640px) {
-    header { padding: 1rem 1.25rem; }
-    header h1 { font-size: 1.05rem; }
-    main { padding: 1rem 1.25rem 2rem; }
-    body { font-size: 0.9rem; }
-    th, td { padding: 0.5rem 0.6rem; white-space: normal; }
+  /* Tablet / large-phone tuning: audit found 768px still rendering the
+     desktop table layout with no dedicated breakpoint, so this tier gets
+     the same column-hiding/wrapping treatment as the phone tier below,
+     with lighter font/padding shrinkage. */
+  @media (max-width: 768px) {
+    main { padding: 1.25rem 1.5rem 2.5rem; }
+    table { table-layout: fixed; }
+    th, td { padding: 0.55rem 0.6rem; white-space: normal; word-break: break-word; vertical-align: top; }
+    th { font-size: 0.72rem; letter-spacing: 0.02em; }
     .col-secondary { display: none; }
     .cell-sub { display: block; }
+  }
+
+  @media (max-width: 640px) {
+    header { padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.5rem; }
+    header h1 { font-size: 1.05rem; }
+    main { padding: 1rem 1rem 2rem; }
+    body { font-size: 0.9rem; }
+    th, td { padding: 0.5rem 0.45rem; }
+    th { font-size: 0.68rem; }
+  }
+
+  @media (max-width: 420px) {
+    main { padding: 0.85rem 0.75rem 1.75rem; }
+    body { font-size: 0.85rem; }
+    th, td { padding: 0.45rem 0.35rem; }
+    .card { padding: 0.85rem 0.9rem; }
   }
 </style>
 </head>
@@ -218,9 +238,8 @@ export function renderAllTrips(
     <table>
       <thead>
         <tr>
-        <th>ID</th>
+        <th class="col-secondary">ID</th>
         ${thead}
-        <th>Flights</th>
         </tr>
       </thead>
       <tbody>
@@ -615,7 +634,18 @@ export function renderAllFlights(
     return `<th><a class="row-link" href="${link.href}">${escapeHtml(link.label)}${arrow}</a></th>`;
   };
 
-  const thead = sortLinks.map(headerCell).join('\n        ');
+  // Header cells must line up 1:1 with the <td> order in each row below:
+  // Date, Flight, Route, Airline, Duration, Status, Trip.
+  const byColumn = (column: string) => sortLinks.find((link) => link.column === column)!;
+  const thead = [
+    headerCell(byColumn('departure_datetime')),
+    headerCell(byColumn('flight_number')),
+    headerCell(byColumn('departure_airport')),
+    '<th class="col-secondary">Airline</th>',
+    '<th>Duration</th>',
+    headerCell(byColumn('status')),
+    '<th class="col-secondary">Trip</th>',
+  ].join('\n        ');
 
   const rangeStart = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
   const rangeEnd = Math.min(pagination.page * pagination.pageSize, pagination.total);
@@ -637,8 +667,6 @@ export function renderAllFlights(
       <thead>
         <tr>
         ${thead}
-        <th>Duration</th>
-        <th class="col-secondary">Trip</th>
         </tr>
       </thead>
       <tbody>
