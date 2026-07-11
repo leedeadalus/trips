@@ -11,6 +11,7 @@
     "migrate:down": "node-pg-migrate down",
     "cli": "tsx src/cli.ts",
     "mcp": "tsx src/mcp/server.ts",
+    "dashboard": "tsx src/dashboard/server.ts",
     "test": "vitest run"
   },
   "keywords": [],
@@ -20,10 +21,12 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "commander": "^15.0.0",
     "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "pg": "^8.22.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
     "node-pg-migrate": "^8.0.4",
