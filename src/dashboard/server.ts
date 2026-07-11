@@ -6,10 +6,12 @@ import {
   renderAllTrips,
   renderAllFlights,
   renderMapView,
+  renderCityTimeline,
   flightMapPointToMapFlight,
   type AllFlightsSortLink,
   type TripListSortLink,
 } from './render.js';
+import { deriveCityTimeline } from '../city-timeline.js';
 
 const app = express();
 const port = Number(process.env.PORT ?? 4173);
@@ -218,6 +220,28 @@ app.get('/api/map-flights', async (req, res, next) => {
 
     const points = await repo.listFlightsForMap({ startDate, endDate });
     res.json({ startDate, endDate, flights: points.map(flightMapPointToMapFlight) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/timeline', async (req, res, next) => {
+  try {
+    const flights = await repo.listFlightsForTimeline();
+    // pg returns timestamp columns as Date objects; deriveCityTimeline expects
+    // ISO date strings (see TimelineFlightInput in city-timeline.ts), so
+    // normalize here rather than changing that module's input contract.
+    const timelineInput = flights.map((f) => ({
+      departure_airport: f.departure_airport,
+      arrival_airport: f.arrival_airport,
+      departure_datetime:
+        f.departure_datetime instanceof Date ? f.departure_datetime.toISOString() : f.departure_datetime,
+      arrival_datetime:
+        f.arrival_datetime instanceof Date ? f.arrival_datetime.toISOString() : f.arrival_datetime,
+      status: f.status,
+    }));
+    const segments = deriveCityTimeline(timelineInput);
+    res.type('html').send(renderCityTimeline({ segments }));
   } catch (err) {
     next(err);
   }
