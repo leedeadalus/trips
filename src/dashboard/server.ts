@@ -1,4 +1,5 @@
 import express from 'express';
+import { pathToFileURL } from 'node:url';
 import * as repo from '../repository.js';
 import {
   renderNotFound,
@@ -12,9 +13,10 @@ import {
   type TripListSortLink,
 } from './render.js';
 import { deriveCityTimeline } from '../city-timeline.js';
+import { CreateFlightInput } from '../schemas.js';
 
-const app = express();
-const port = Number(process.env.PORT ?? 4173);
+export const dashboardApp = express();
+const app = dashboardApp;
 app.use(express.json());
 
 const SORT_COLUMNS: Array<{ column: 'departure_datetime' | 'flight_number' | 'departure_airport' | 'arrival_airport' | 'status'; label: string }> = [
@@ -70,6 +72,27 @@ app.get('/', async (req, res, next) => {
     };
 
     res.type('html').send(renderAllTrips(result.trips, sortLinks, pagination));
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/flights', async (req, res, next) => {
+  try {
+    const parsed = CreateFlightInput.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: 'Invalid request body',
+        issues: parsed.error.issues,
+      });
+      return;
+    }
+
+    const flight = await repo.createFlight(parsed.data, {
+      type: 'user',
+      idOrContext: 'dashboard-api',
+    });
+    res.status(201).json(flight);
   } catch (err) {
     next(err);
   }
@@ -256,6 +279,9 @@ app.use((_req, res) => {
   res.status(404).type('html').send(renderNotFound('Page not found'));
 });
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Trips dashboard listening on http://0.0.0.0:${port}`);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const port = Number(process.env.PORT ?? 4173);
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Trips dashboard listening on http://0.0.0.0:${port}`);
+  });
+}

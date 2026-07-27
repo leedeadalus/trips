@@ -78,6 +78,192 @@ npm run cli -- flight mark-flown <flightId>
 npm run cli -- flight delete <flightId>
 ```
 
+## HTTP API
+
+Start the dashboard/API server in its container:
+
+```bash
+docker compose up -d dashboard
+```
+
+The examples below use `http://localhost:4173` as the base URL. Requests and responses
+use JSON unless noted otherwise.
+
+> **Security boundary:** The dashboard and HTTP API have no application-level
+> authentication or authorization. Anyone who can reach the service can create flights,
+> assign flights to trips, and read map data. Restrict access with deployment and network
+> controls (for example, firewall rules, a private network, or an authenticating reverse
+> proxy); do not expose the service directly to an untrusted network.
+
+### `POST /flights`
+
+Creates a flight. The request uses camelCase field names:
+
+```bash
+curl -i -X POST http://localhost:4173/flights \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "flightNumber": "UA70",
+    "departureAirport": "EWR",
+    "arrivalAirport": "AMS",
+    "departureDatetime": "2026-03-18T18:35:00Z",
+    "arrivalDatetime": "2026-03-19T07:15:00Z",
+    "airline": "United Airlines",
+    "flightClass": "economy",
+    "bookingReference": "H59RC5",
+    "ticketPrice": 725.50,
+    "currency": "USD",
+    "status": "confirmed",
+    "notes": "Window seat",
+    "tripId": 1
+  }'
+```
+
+Required fields are `flightNumber`, `departureAirport` (exactly three characters),
+`arrivalAirport` (exactly three characters), and `departureDatetime`. Optional `status`
+values are `confirmed`, `not_flown`, `cancelled`, and `completed`; it defaults to
+`confirmed`. All other fields shown above are optional.
+
+Success returns `201 Created` and the created database record (snake_case fields):
+
+```json
+{
+  "id": 21,
+  "trip_id": 1,
+  "flight_number": "UA70",
+  "departure_airport": "EWR",
+  "arrival_airport": "AMS",
+  "departure_datetime": "2026-03-18T18:35:00.000Z",
+  "arrival_datetime": "2026-03-19T07:15:00.000Z",
+  "airline": "United Airlines",
+  "class": "economy",
+  "booking_reference": "H59RC5",
+  "ticket_price": "725.50",
+  "currency": "USD",
+  "status": "confirmed",
+  "notes": "Window seat",
+  "created_at": "2026-02-01T12:00:00.000Z",
+  "updated_at": "2026-02-01T12:00:00.000Z"
+}
+```
+
+A syntactically valid JSON body that fails validation returns `400 Bad Request` with
+field-level Zod issues. The issue details can include additional validation metadata:
+
+```json
+{
+  "error": "Invalid request body",
+  "issues": [
+    {
+      "code": "too_big",
+      "path": ["departureAirport"],
+      "message": "Too big: expected string to have <=3 characters"
+    }
+  ]
+}
+```
+
+### `POST /trips/:id/flights`
+
+Assigns existing flights to an existing trip. Send either an explicit non-empty list of
+flight IDs:
+
+```bash
+curl -i -X POST http://localhost:4173/trips/1/flights \
+  -H 'Content-Type: application/json' \
+  -d '{"flightIds":[21,22]}'
+```
+
+or an inclusive departure-date range:
+
+```bash
+curl -i -X POST http://localhost:4173/trips/1/flights \
+  -H 'Content-Type: application/json' \
+  -d '{"startDate":"2026-03-18","endDate":"2026-03-31"}'
+```
+
+Success returns `200 OK`. `flights` contains the assigned records in the same snake_case
+shape returned by `POST /flights`:
+
+```json
+{
+  "tripId": 1,
+  "assignedCount": 2,
+  "flights": [
+    {
+      "id": 21,
+      "trip_id": 1,
+      "flight_number": "UA70",
+      "departure_airport": "EWR",
+      "arrival_airport": "AMS",
+      "departure_datetime": "2026-03-18T18:35:00.000Z",
+      "arrival_datetime": "2026-03-19T07:15:00.000Z",
+      "airline": "United Airlines",
+      "class": "economy",
+      "booking_reference": "H59RC5",
+      "ticket_price": "725.50",
+      "currency": "USD",
+      "status": "confirmed",
+      "notes": "Window seat",
+      "created_at": "2026-02-01T12:00:00.000Z",
+      "updated_at": "2026-02-01T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+An invalid trip ID or request shape returns `400 Bad Request`, for example
+`{"error":"Provide flightIds (array) or startDate/endDate (strings)"}`. A valid integer
+ID for a trip that does not exist returns `404 Not Found` with
+`{"error":"Trip 999 not found"}`.
+
+### `GET /api/map-flights`
+
+Returns flights for an inclusive date window, shaped for the dashboard map. Both query
+parameters are required:
+
+```bash
+curl 'http://localhost:4173/api/map-flights?startDate=2026-03-01&endDate=2026-03-31'
+```
+
+Success returns `200 OK`:
+
+```json
+{
+  "startDate": "2026-03-01",
+  "endDate": "2026-03-31",
+  "flights": [
+    {
+      "id": 21,
+      "flightNumber": "UA70",
+      "status": "confirmed",
+      "departure": {
+        "code": "EWR",
+        "name": "Newark Liberty International Airport",
+        "lat": 40.6895,
+        "lon": -74.1745
+      },
+      "arrival": {
+        "code": "AMS",
+        "name": "Amsterdam Airport Schiphol",
+        "lat": 52.3105,
+        "lon": 4.7683
+      }
+    }
+  ]
+}
+```
+
+An airport missing from the location lookup is represented by `null` in the corresponding
+`departure` or `arrival` field.
+Missing query parameters return `400 Bad Request` with
+`{"error":"startDate and endDate query params are required"}`. A reversed range
+(`startDate > endDate`) is not an error: it returns `200 OK` with the requested dates and
+an empty `flights` array.
+
+The HTML dashboard route `GET /flights` remains separate from the JSON API: it returns
+the rendered flights page, not JSON.
+
 ## MCP Server
 
 ```bash
