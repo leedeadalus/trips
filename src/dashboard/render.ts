@@ -747,6 +747,7 @@ export function renderAllFlights(
     ? flights
         .map(
           (f) => `<tr>
+            <td class="flight-selection-cell"><input type="checkbox" class="flight-delete-checkbox" value="${f.id}" aria-label="Select flight ${escapeHtml(f.flight_number)} for deletion"></td>
             <td data-column="date">${formatDate(f.departure_datetime)}</td>
             <td data-column="flight">${escapeHtml(f.flight_number)}</td>
             <td data-column="route">${escapeHtml(f.departure_airport)} → ${escapeHtml(f.arrival_airport)}<span class="cell-sub">${escapeHtml(f.airline ?? '—')} &middot; ${
@@ -766,7 +767,7 @@ export function renderAllFlights(
           </tr>`
         )
         .join('\n')
-    : `<tr><td colspan="8" class="empty">No flights yet.</td></tr>`;
+    : `<tr><td colspan="9" class="empty">No flights yet.</td></tr>`;
 
   const headerCell = (link: AllFlightsSortLink, column: string) => {
     const arrow = link.active ? (link.direction === 'asc' ? ' ▲' : ' ▼') : '';
@@ -777,6 +778,7 @@ export function renderAllFlights(
   // Date, Flight, Route, Airline, Duration, Distance, Status, Trip.
   const byColumn = (column: string) => sortLinks.find((link) => link.column === column)!;
   const thead = [
+    '<th class="flight-selection-cell"><input type="checkbox" id="select-all-flights" aria-label="Select all flights on this page"></th>',
     headerCell(byColumn('departure_datetime'), 'date'),
     headerCell(byColumn('flight_number'), 'flight'),
     headerCell(byColumn('departure_airport'), 'route'),
@@ -808,7 +810,11 @@ export function renderAllFlights(
 
   const body = `
   <div class="card">
-    <div style="display:flex; justify-content:flex-end; margin-bottom:0.5rem;">
+    <div class="flights-toolbar">
+      <div class="bulk-delete-actions">
+        <button type="button" id="delete-selected-flights" class="btn-danger" disabled>Delete selected (0)</button>
+        <span id="delete-flights-status" class="meta" role="status"></span>
+      </div>
       ${columnVisibilityHtml}
     </div>
     <div class="table-wrap">
@@ -824,7 +830,75 @@ export function renderAllFlights(
     </table>
     </div>
     ${pager}
-  </div>`;
+  </div>
+  <style>
+    .flights-toolbar { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.5rem; flex-wrap:wrap; }
+    .bulk-delete-actions { display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; }
+    .btn-danger { background:#b83232; color:#fff; border:1px solid #d74a4a; border-radius:8px; padding:0.55rem 1rem; min-height:44px; font-weight:600; cursor:pointer; }
+    .btn-danger:hover:not(:disabled) { background:#cf3d3d; }
+    .btn-danger:disabled { opacity:0.45; cursor:not-allowed; }
+    .flight-selection-cell { width:52px; min-width:52px; text-align:center; }
+    .flight-selection-cell input { width:1.25rem; height:1.25rem; accent-color:var(--accent); cursor:pointer; }
+  </style>
+  <script>
+  (function () {
+    var selectAll = document.getElementById('select-all-flights');
+    var checkboxes = Array.from(document.querySelectorAll('.flight-delete-checkbox'));
+    var deleteButton = document.getElementById('delete-selected-flights');
+    var status = document.getElementById('delete-flights-status');
+
+    function selectedIds() {
+      return checkboxes.filter(function (checkbox) { return checkbox.checked; })
+        .map(function (checkbox) { return Number(checkbox.value); });
+    }
+
+    function updateSelection() {
+      var count = selectedIds().length;
+      deleteButton.disabled = count === 0;
+      deleteButton.textContent = 'Delete selected (' + count + ')';
+      if (selectAll) {
+        selectAll.checked = checkboxes.length > 0 && count === checkboxes.length;
+        selectAll.indeterminate = count > 0 && count < checkboxes.length;
+      }
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        checkboxes.forEach(function (checkbox) { checkbox.checked = selectAll.checked; });
+        updateSelection();
+      });
+    }
+    checkboxes.forEach(function (checkbox) { checkbox.addEventListener('change', updateSelection); });
+
+    deleteButton.addEventListener('click', function () {
+      var ids = selectedIds();
+      if (ids.length === 0) return;
+      if (!confirm('Permanently delete ' + ids.length + ' selected flight' + (ids.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
+
+      deleteButton.disabled = true;
+      status.textContent = 'Deleting...';
+      fetch('/flights', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flightIds: ids }),
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error('Delete failed (' + response.status + ')');
+          return response.json();
+        })
+        .then(function (result) {
+          status.textContent = 'Deleted ' + result.deletedCount + ' flight' + (result.deletedCount === 1 ? '' : 's') + '. Reloading...';
+          window.location.reload();
+        })
+        .catch(function (error) {
+          status.textContent = error.message || 'Delete failed.';
+          updateSelection();
+        });
+    });
+
+    updateSelection();
+  })();
+  </script>`;
   return layout('All Flights', body);
 }
 

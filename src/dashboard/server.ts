@@ -98,6 +98,34 @@ app.post('/flights', async (req, res, next) => {
   }
 });
 
+app.delete('/flights', async (req, res, next) => {
+  try {
+    const flightIds = (req.body as { flightIds?: unknown })?.flightIds;
+    if (
+      !Array.isArray(flightIds) ||
+      flightIds.length === 0 ||
+      flightIds.length > 200 ||
+      !flightIds.every(
+        (id) => typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && id <= 2_147_483_647
+      )
+    ) {
+      res.status(400).json({
+        error: 'flightIds must contain 1-200 positive 32-bit integers',
+      });
+      return;
+    }
+
+    const uniqueIds = [...new Set(flightIds as number[])];
+    const deletedFlightIds = await repo.deleteFlights(uniqueIds, {
+      type: 'user',
+      idOrContext: 'dashboard-api',
+    });
+    res.json({ deletedCount: deletedFlightIds.length, deletedFlightIds });
+  } catch (err) {
+    next(err);
+  }
+});
+
 app.get('/flights', async (req, res, next) => {
   try {
     type SortCol = typeof SORT_COLUMNS[number]['column'];

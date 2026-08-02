@@ -6,6 +6,7 @@ import {
   markFlightFlown,
   listFlights,
   deleteFlight,
+  deleteFlights,
   listTripsWithFlightCounts,
   assignFlightsToTrip,
   assignFlightsInDateRangeToTrip,
@@ -55,6 +56,44 @@ describe('trips and flights', () => {
 
     await deleteFlight(flight1.id, TEST_ACTOR);
     await deleteFlight(flight2.id, TEST_ACTOR);
+  });
+
+  it('bulk deletes flights atomically and records one audit row per deleted flight', async () => {
+    const first = await createFlight({
+      flightNumber: 'DEL100',
+      departureAirport: 'JFK',
+      arrivalAirport: 'LAX',
+      departureDatetime: '2029-01-01T10:00:00Z',
+    }, TEST_ACTOR);
+    const second = await createFlight({
+      flightNumber: 'DEL101',
+      departureAirport: 'LAX',
+      arrivalAirport: 'JFK',
+      departureDatetime: '2029-01-02T10:00:00Z',
+    }, TEST_ACTOR);
+
+    const deletedIds = await deleteFlights([first.id, second.id], TEST_ACTOR);
+
+    expect(deletedIds.sort()).toEqual([first.id, second.id].sort());
+    const remaining = await listFlights({});
+    expect(remaining.some((flight) => deletedIds.includes(flight.id))).toBe(false);
+
+    const { rows: auditRows } = await pool.query(
+      `SELECT record_id, action, actor_type, actor_id_or_context, old_values, new_values
+       FROM trips.audit_log
+       WHERE table_name = 'flights' AND record_id = ANY($1::int[])
+       ORDER BY record_id`,
+      [[first.id, second.id]]
+    );
+    const deletionRows = auditRows.filter((row) => row.action === 'delete');
+    expect(deletionRows).toHaveLength(2);
+    expect(deletionRows.map((row) => Number(row.record_id)).sort()).toEqual([first.id, second.id].sort());
+    for (const row of deletionRows) {
+      expect(row.actor_type).toBe('user');
+      expect(row.actor_id_or_context).toBe('vitest');
+      expect(row.old_values).toBeTruthy();
+      expect(row.new_values).toBeNull();
+    }
   });
 
   it('reports accurate flight counts per trip, including zero-flight trips', async () => {

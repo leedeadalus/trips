@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const repositoryMocks = vi.hoisted(() => ({
   attachFlightDistances: vi.fn(),
   createFlight: vi.fn(),
+  deleteFlights: vi.fn(),
   listAllFlights: vi.fn(),
 }));
 
@@ -114,4 +115,53 @@ describe('dashboard flights routes', () => {
       { type: 'user', idOrContext: 'dashboard-api' }
     );
   });
+
+  it('bulk deletes a deduplicated checklist of flight ids', async () => {
+    repositoryMocks.deleteFlights.mockResolvedValue([12, 15]);
+
+    const response = await fetch(`${baseUrl}/flights`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ flightIds: [12, 15, 12] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deletedCount: 2, deletedFlightIds: [12, 15] });
+    expect(repositoryMocks.deleteFlights).toHaveBeenCalledWith(
+      [12, 15],
+      { type: 'user', idOrContext: 'dashboard-api' }
+    );
+  });
+
+  it('rejects oversized deletion batches and ids outside the PostgreSQL integer range', async () => {
+    for (const flightIds of [
+      Array.from({ length: 201 }, (_, index) => index + 1),
+      [2_147_483_648],
+      [Number.MAX_SAFE_INTEGER + 1],
+    ]) {
+      const response = await fetch(`${baseUrl}/flights`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ flightIds }),
+      });
+
+      expect(response.status).toBe(400);
+    }
+    expect(repositoryMocks.deleteFlights).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty or invalid bulk deletion checklist', async () => {
+    const response = await fetch(`${baseUrl}/flights`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ flightIds: [1, 'nope', -2] }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'flightIds must contain 1-200 positive 32-bit integers',
+    });
+    expect(repositoryMocks.deleteFlights).not.toHaveBeenCalled();
+  });
+
 });

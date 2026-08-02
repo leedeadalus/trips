@@ -49,6 +49,31 @@ function makePagination() {
 }
 
 describe('renderAllFlights', () => {
+  it('renders a bulk deletion checklist and guarded delete action', () => {
+    const flights = [1, 2].map((id) => ({
+      id,
+      flight_number: `AA10${id}`,
+      departure_airport: 'JFK',
+      arrival_airport: 'LAX',
+      departure_datetime: '2024-01-01T10:00:00Z',
+      arrival_datetime: '2024-01-01T13:00:00Z',
+      airline: 'American',
+      status: 'confirmed',
+      trip_id: null,
+      trip_name: null,
+    })) as unknown as FlightWithTrip[];
+
+    const html = renderAllFlights(flights, makeSortLinks('departure_datetime'), makePagination());
+
+    expect(html).toContain('id="select-all-flights"');
+    expect(html).toContain('class="flight-delete-checkbox" value="1"');
+    expect(html).toContain('class="flight-delete-checkbox" value="2"');
+    expect(html).toContain('id="delete-selected-flights"');
+    expect(html).toContain('Delete selected');
+    expect(html).toContain("method: 'DELETE'");
+    expect(html).toContain("confirm('Permanently delete '");
+  });
+
   it('renders header cells in the same left-to-right order as the row data cells', () => {
     const flight: FlightWithTrip = {
       id: 1,

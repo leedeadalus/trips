@@ -654,21 +654,37 @@ export async function markFlightFlown(flightId: number, actor: ActorContext): Pr
   });
 }
 
-export async function deleteFlight(flightId: number, actor: ActorContext): Promise<void> {
-  return withTransaction(async (c) => {
-    const { rows: before } = await c.query<Flight>(
-      `SELECT * FROM ${SCHEMA}.flights WHERE id = $1`,
-      [flightId]
-    );
-    if (before.length === 0) return;
+export async function deleteFlights(flightIds: number[], actor: ActorContext): Promise<number[]> {
+  const uniqueIds = [...new Set(flightIds)];
+  if (uniqueIds.length === 0) return [];
 
-    await c.query(`DELETE FROM ${SCHEMA}.flights WHERE id = $1`, [flightId]);
-    await recordAudit(c, {
-      tableName: 'flights',
-      recordId: flightId,
-      action: 'delete',
-      actor,
-      oldValues: before[0],
-    });
+  return withTransaction(async (c) => {
+    const { rows: flights } = await c.query<Flight>(
+      `SELECT * FROM ${SCHEMA}.flights
+       WHERE id = ANY($1::int[])
+       ORDER BY id
+       FOR UPDATE`,
+      [uniqueIds]
+    );
+    if (flights.length === 0) return [];
+
+    const deletedIds = flights.map((flight) => flight.id);
+    await c.query(`DELETE FROM ${SCHEMA}.flights WHERE id = ANY($1::int[])`, [deletedIds]);
+
+    for (const flight of flights) {
+      await recordAudit(c, {
+        tableName: 'flights',
+        recordId: flight.id,
+        action: 'delete',
+        actor,
+        oldValues: flight,
+      });
+    }
+
+    return deletedIds;
   });
+}
+
+export async function deleteFlight(flightId: number, actor: ActorContext): Promise<void> {
+  await deleteFlights([flightId], actor);
 }
